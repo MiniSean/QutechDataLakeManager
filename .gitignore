@@ -1,0 +1,52 @@
+# PyCharm / IntelliJ
+.idea/
+*.iml
+*.iws
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+venv3*/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment Variables
+.env
+.env.example
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Anti-Gravity / Gemini IDE
+.agents/
+
+# QDL Specific
+.qdl/
+client_config.json
+*.tar.gz
+
+EmptyDataDirectory/
