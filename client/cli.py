@@ -172,7 +172,7 @@ def main():
     click.secho(f"Configuring Custom Plugin Sync for scope: {scope_uid}", fg="yellow")
     qdl_exe = get_executable("qdl", config)
     try:
-        subprocess.run([qdl_exe, "sync", "create", "custom", scope_uid, data_dir, "1.0.0"], check=False)
+        subprocess.run([qdl_exe, "sync", "create", "custom", scope_uid, data_dir, "0.1.0"], check=False)
     except Exception as e:
         click.secho(f"Warning: Could not create sync: {e}", fg="yellow")
         
