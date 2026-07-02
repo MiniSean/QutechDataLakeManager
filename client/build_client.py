@@ -34,6 +34,7 @@ def build():
         '--workpath', str(Path(__file__).parent / 'build'),
         '--specpath', str(Path(__file__).parent),
         f'--add-data={tarball_path};.',
+        '--add-data=client/messages.json;.',
         '--noconfirm'
     ])
     

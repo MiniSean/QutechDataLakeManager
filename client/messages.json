@@ -1,0 +1,41 @@
+{
+  "prompts": {
+    "data_dir": {"text": "Data Directory"},
+    "fridge": {"text": "Fridge Name"},
+    "device": {"text": "Device Name"},
+    "bin_dir": {"text": "Directory containing {name} (e.g., C:/path/to/venv/Scripts)"},
+    "press_any_key": {"text": "Press any key to exit..."}
+  },
+  "info": {
+    "welcome": {"text": "=== QDL Backup Client ===", "fg": "green", "bold": true},
+    "stopping_sync": {"text": "Stopping QDL Sync Service..."},
+    "stopping_daemon": {"text": "Stopping QDL Daemon..."},
+    "plugin_deployed": {"text": "Plugin successfully deployed to {target_path}"},
+    "auth_success": {"text": "Authenticated with QDL successfully.", "fg": "green"},
+    "starting_login": {"text": "Not authenticated or token missing. Starting login process...", "fg": "yellow"},
+    "starting_daemon": {"text": "Starting QDL Daemon...", "fg": "blue"},
+    "starting_sync": {"text": "Starting QDL Sync Service...", "fg": "blue"},
+    "configuring_custom_sync": {"text": "Configuring Custom Plugin Sync for scope: {scope_uid}", "fg": "yellow"},
+    "configuring_sync_service": {"text": "Configuring Sync Service...", "fg": "green"},
+    "starting_backup_sync": {"text": "Starting Backup Sync...", "fg": "green"},
+    "services_running": {"text": "\nBackup Services are running in the background.", "fg": "green", "bold": true},
+    "press_ctrl_c": {"text": "Press Ctrl+C to stop the backup process and exit.", "fg": "red"},
+    "shutting_down": {"text": "\nShutting down...", "fg": "yellow"},
+    "venv_hint": {"text": "If you are using a Python virtual environment, please provide the path to its 'Scripts' or 'bin' directory.", "fg": "yellow"}
+  },
+  "warnings": {
+    "plugin_not_found": {"text": "Warning: Bundled plugin not found at {bundled_path}. Sync-service may attempt to download it."},
+    "could_not_create_sync": {"text": "Warning: Could not create sync: {e}", "fg": "yellow"},
+    "could_not_configure_sync": {"text": "Warning: Could not configure sync: {e}", "fg": "yellow"},
+    "could_not_start_sync": {"text": "Warning: Could not start sync: {e}", "fg": "yellow"},
+    "executable_not_in_path": {"text": "Could not find '{name}' in your PATH.", "fg": "yellow"}
+  },
+  "errors": {
+    "qdl_not_found": {"text": "Error: 'qdl' command not found in your PATH. Please ensure the QDL CLI is installed.", "fg": "red"},
+    "login_error": {"text": "Error during login: {ex}", "fg": "red"},
+    "executable_not_in_dir": {"text": "Executable not found in {bin_dir}. Please try again.", "fg": "red"},
+    "daemon_start_error": {"text": "Error starting daemon: {e}", "fg": "red"},
+    "sync_start_error": {"text": "Error starting sync service: {e}", "fg": "red"},
+    "fatal": {"text": "{msg}", "fg": "red"}
+  }
+}
