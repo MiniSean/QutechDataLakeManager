@@ -40,6 +40,9 @@ def build() -> None:
 
     cli_script: Path = Path(__file__).parent / "cli.py"
     
+    messages_path: Path = root_dir / "client" / "messages.json"
+    version_path: Path = root_dir / "version.json"
+    
     PyInstaller.__main__.run([
         str(cli_script),
         '--onefile',
@@ -48,8 +51,8 @@ def build() -> None:
         '--workpath', str(Path(__file__).parent / 'build'),
         '--specpath', str(Path(__file__).parent),
         f'--add-data={tarball_path};.',
-        '--add-data=client/messages.json;.',
-        '--add-data=version.json;.',
+        f'--add-data={messages_path};.',
+        f'--add-data={version_path};.',
         '--noconfirm'
     ])
     

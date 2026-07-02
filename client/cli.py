@@ -5,8 +5,9 @@ import shutil
 import subprocess
 import time
 import atexit
+import threading
 from pathlib import Path
-from typing import Any, Optional, Mapping, MutableMapping
+from typing import Any, Optional, Mapping, MutableMapping, List
 
 import click
 import qdl
@@ -184,6 +185,23 @@ def ensure_authenticated(config: MutableMapping[str, Any]) -> None:
         except Exception as ex:
             fatal_error(msgs.get_text("errors", "login_error", ex=ex))
 
+def stream_logs(proc: subprocess.Popen[Any], app: CLIApp, prefix: str) -> None:
+    """Streams stdout from a subprocess into the app logger continuously."""
+    if proc.stdout:
+        for line in iter(proc.stdout.readline, ''):
+            if line:
+                app.log(f"{prefix} {line.strip()}")
+            if proc.poll() is not None:
+                break
+
+def run_and_log(cmd: List[str], app: CLIApp, check: bool = False) -> None:
+    """Runs a subprocess synchronously and logs its output."""
+    result = subprocess.run(cmd, check=check, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if result.stdout:
+        for line in result.stdout.splitlines():
+            if line.strip():
+                app.log(line.strip())
+
 @click.command()
 def main() -> None:
     """QDL Client Manager: Configures and runs the QDL data backup process."""
@@ -199,6 +217,7 @@ def main() -> None:
     
     fridge: str = msgs.prompt("prompts", "fridge", default=config.get("fridge", "dicarlo"))
     device: str = msgs.prompt("prompts", "device", default=config.get("device", "testing"))
+    show_border: bool = click.prompt("Show UI box border for the logs panel? [y/N]", default="n").lower().startswith("y")
     
     # Save preferences
     config.update({
@@ -221,14 +240,15 @@ def main() -> None:
     if sys.platform == 'win32':
         creationflags = 0x00000008 | 0x00000200
         
-    app: CLIApp = CLIApp()
+    app: CLIApp = CLIApp(show_border=show_border)
     strategy: QdlDatasetNameDateExtraction = QdlDatasetNameDateExtraction()
     
     with app.get_live_context() as live:
         app.log(msgs.get_text("info", "starting_daemon"))
         daemon_exe: str = get_executable("qdl-daemon", config)
         try:
-            daemon_proc = subprocess.Popen([daemon_exe], creationflags=creationflags)
+            daemon_proc = subprocess.Popen([daemon_exe], creationflags=creationflags, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            threading.Thread(target=stream_logs, args=(daemon_proc, app, "[DAEMON]"), daemon=True).start()
         except Exception as e:
             # Drop out of live context on fatal error so prompt is visible
             pass
@@ -237,7 +257,8 @@ def main() -> None:
         app.log(msgs.get_text("info", "starting_sync"))
         sync_exe: str = get_executable("qdl-sync-service", config)
         try:
-            sync_proc = subprocess.Popen([sync_exe], creationflags=creationflags)
+            sync_proc = subprocess.Popen([sync_exe], creationflags=creationflags, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            threading.Thread(target=stream_logs, args=(sync_proc, app, "[SYNC]"), daemon=True).start()
         except Exception as e:
             fatal_error(msgs.get_text("errors", "sync_start_error", e=e))
         
@@ -250,19 +271,19 @@ def main() -> None:
         app.log(msgs.get_text("info", "configuring_custom_sync", scope_uid=scope_uid))
         qdl_exe: str = get_executable("qdl", config)
         try:
-            subprocess.run([qdl_exe, "sync", "create", "custom", scope_uid, data_dir, PLUGIN_VERSION], check=False)
+            run_and_log([qdl_exe, "sync", "create", "custom", scope_uid, data_dir, PLUGIN_VERSION], app, check=False)
         except Exception as e:
             app.log(msgs.get_text("warnings", "could_not_create_sync", e=e), style="yellow")
             
         app.log(msgs.get_text("info", "configuring_sync_service"))
         try:
-            subprocess.run([qdl_exe, "sync", "update", "--scan_interval", "5"], check=False)
+            run_and_log([qdl_exe, "sync", "update", "--scan_interval", "5"], app, check=False)
         except Exception as e:
             app.log(msgs.get_text("warnings", "could_not_configure_sync", e=e), style="yellow")
     
         app.log(msgs.get_text("info", "starting_backup_sync"))
         try:
-            subprocess.run([qdl_exe, "sync", "plugin", "start"], check=False)
+            run_and_log([qdl_exe, "sync", "plugin", "start"], app, check=False)
         except Exception as e:
             app.log(msgs.get_text("warnings", "could_not_start_sync", e=e), style="yellow")
             

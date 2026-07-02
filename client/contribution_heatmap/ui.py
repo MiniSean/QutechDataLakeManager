@@ -8,6 +8,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich.align import Align
+import rich.box
 
 class HeatmapGrid:
     # region Class Constructor
@@ -89,17 +90,22 @@ class HeatmapGrid:
 
 class CLIApp:
     # region Class Constructor
-    def __init__(self) -> None:
+    def __init__(self, show_border: bool = True) -> None:
         self.console: Console = Console()
         self.layout: Layout = Layout()
         self.heatmap: HeatmapGrid = HeatmapGrid(num_weeks=52)
         self.logs: List[Text] = []
         self._max_logs: int = 100
+        self.show_border: bool = show_border
         
         self.layout.split_column(
             Layout(name="top", size=12), # Header, Heatmap, Legend
             Layout(name="bottom")
         )
+        
+        # Explicitly initialize the top layout with an empty heatmap
+        # to prevent displaying the raw Layout(name='top') string during startup
+        self.update_heatmap({})
     # endregion
 
     # region Class Methods
@@ -125,10 +131,49 @@ class CLIApp:
     def get_renderable(self) -> Layout:
         """Returns the full layout renderable."""
         log_group: Group = Group(*self.logs)
-        self.layout["bottom"].update(Panel(log_group, title="[bold]Logs[/bold]", border_style="green"))
+        
+        if self.show_border:
+            self.layout["bottom"].update(Panel(log_group, title="[bold]Logs[/bold]", border_style="green"))
+        else:
+            self.layout["bottom"].update(Panel(log_group, title="[bold]Logs[/bold]", border_style="green", box=rich.box.SIMPLE_HEAD))
+            
         return self.layout
         
     def get_live_context(self) -> Live:
         """Returns the Rich Live context for rendering."""
         return Live(self.get_renderable(), console=self.console, refresh_per_second=1, screen=True)
     # endregion
+
+if __name__ == "__main__":
+    import time
+    import random
+    
+    # Try it with and without borders by changing this!
+    test_app = CLIApp(show_border=False)
+    
+    with test_app.get_live_context() as live:
+        test_app.log("Starting TUI test mode...", style="bold blue")
+        test_app.log("Simulating background daemon processes...")
+        
+        mock_counts = {}
+        today_date = datetime.date.today()
+        
+        # Populate random historical data
+        for i in range(365):
+            date = today_date - datetime.timedelta(days=i)
+            if random.random() > 0.4:
+                mock_counts[date] = random.randint(1, 5)
+        
+        test_app.update_heatmap(mock_counts)
+        live.update(test_app.get_renderable())
+        
+        for i in range(20):
+            time.sleep(0.5)
+            test_app.log(f"[DAEMON] Simulated log output line {i}...")
+            if i % 3 == 0:
+                test_app.log(f"[SYNC] Connected to QDL remote server.", style="green")
+            live.update(test_app.get_renderable())
+            
+        test_app.log("Test mode complete. Exiting.", style="bold red")
+        live.update(test_app.get_renderable())
+        time.sleep(1)
