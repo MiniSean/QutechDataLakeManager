@@ -5,6 +5,12 @@ import sys
 from pathlib import Path
 from typing import Any
 import PyInstaller.__main__
+import json
+
+def get_plugin_version(root_dir: Path) -> str:
+    v_path = root_dir / "version.json"
+    with open(v_path, "r") as f:
+        return json.load(f).get("custom_qdl_plugin_version", "0.1.0")
 
 def build() -> None:
     print("Cleaning up old builds...")
@@ -25,7 +31,8 @@ def build() -> None:
     # 2. Package the client with Pyinstaller
     print("Packaging CLI client...")
     
-    tarball_path: Path = root_dir / "custom_qdl_plugin" / "qdl-custom-plugin-windows-1.0.0.tar.gz"
+    version = get_plugin_version(root_dir)
+    tarball_path: Path = root_dir / "custom_qdl_plugin" / f"qdl-custom-plugin-windows-{version}.tar.gz"
     
     if not tarball_path.exists():
         print(f"Error: Tarball not found at {tarball_path}")
@@ -42,6 +49,7 @@ def build() -> None:
         '--specpath', str(Path(__file__).parent),
         f'--add-data={tarball_path};.',
         '--add-data=client/messages.json;.',
+        '--add-data=version.json;.',
         '--noconfirm'
     ])
     

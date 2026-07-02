@@ -11,8 +11,22 @@ from typing import Any, Optional, Mapping, MutableMapping
 import click
 import qdl
 
+from contribution_heatmap import CLIApp, get_datasets_per_day, QdlDatasetNameDateExtraction
+
 CONFIG_PATH: Path = Path.home() / ".qdl" / "client_config.json"
-PLUGIN_TARBALL_NAME: str = "qdl-custom-plugin-windows-1.0.0.tar.gz"
+
+def get_plugin_version() -> str:
+    if hasattr(sys, "_MEIPASS"):
+        v_path = Path(sys._MEIPASS) / "version.json"
+    else:
+        v_path = Path(__file__).parent.parent / "version.json"
+    if v_path.exists():
+        with open(v_path, "r") as f:
+            return json.load(f).get("custom_qdl_plugin_version", "0.1.0")
+    return "0.1.0"
+
+PLUGIN_VERSION: str = get_plugin_version()
+PLUGIN_TARBALL_NAME: str = f"qdl-custom-plugin-windows-{PLUGIN_VERSION}.tar.gz"
 
 daemon_proc: Optional[subprocess.Popen[Any]] = None
 sync_proc: Optional[subprocess.Popen[Any]] = None
@@ -206,55 +220,74 @@ def main() -> None:
     creationflags: int = 0
     if sys.platform == 'win32':
         creationflags = 0x00000008 | 0x00000200
-    
-    msgs.echo("info", "starting_daemon")
-    daemon_exe: str = get_executable("qdl-daemon", config)
-    try:
-        daemon_proc = subprocess.Popen([daemon_exe], creationflags=creationflags)
-    except Exception as e:
-        fatal_error(msgs.get_text("errors", "daemon_start_error", e=e))
         
-    msgs.echo("info", "starting_sync")
-    sync_exe: str = get_executable("qdl-sync-service", config)
-    try:
-        sync_proc = subprocess.Popen([sync_exe], creationflags=creationflags)
-    except Exception as e:
-        fatal_error(msgs.get_text("errors", "sync_start_error", e=e))
+    app: CLIApp = CLIApp()
+    strategy: QdlDatasetNameDateExtraction = QdlDatasetNameDateExtraction()
     
-    # Allow time for services to boot up before attempting to communicate via CLI
-    time.sleep(3)
-    
-    # Hardcoded scope as requested
-    scope_uid: str = "dicarlo-testing"
-    
-    msgs.echo("info", "configuring_custom_sync", scope_uid=scope_uid)
-    qdl_exe: str = get_executable("qdl", config)
-    try:
-        subprocess.run([qdl_exe, "sync", "create", "custom", scope_uid, data_dir, "0.1.0"], check=False)
-    except Exception as e:
-        msgs.echo("warnings", "could_not_create_sync", e=e)
+    with app.get_live_context() as live:
+        app.log(msgs.get_text("info", "starting_daemon"))
+        daemon_exe: str = get_executable("qdl-daemon", config)
+        try:
+            daemon_proc = subprocess.Popen([daemon_exe], creationflags=creationflags)
+        except Exception as e:
+            # Drop out of live context on fatal error so prompt is visible
+            pass
+            fatal_error(msgs.get_text("errors", "daemon_start_error", e=e))
+            
+        app.log(msgs.get_text("info", "starting_sync"))
+        sync_exe: str = get_executable("qdl-sync-service", config)
+        try:
+            sync_proc = subprocess.Popen([sync_exe], creationflags=creationflags)
+        except Exception as e:
+            fatal_error(msgs.get_text("errors", "sync_start_error", e=e))
         
-    msgs.echo("info", "configuring_sync_service")
-    try:
-        subprocess.run([qdl_exe, "sync", "update", "--scan_interval", "5"], check=False)
-    except Exception as e:
-        msgs.echo("warnings", "could_not_configure_sync", e=e)
-
-    msgs.echo("info", "starting_backup_sync")
-    try:
-        subprocess.run([qdl_exe, "sync", "plugin", "start"], check=False)
-    except Exception as e:
-        msgs.echo("warnings", "could_not_start_sync", e=e)
+        # Allow time for services to boot up before attempting to communicate via CLI
+        time.sleep(3)
         
-    msgs.echo("info", "services_running")
-    msgs.echo("info", "press_ctrl_c")
+        # Hardcoded scope as requested
+        scope_uid: str = "dicarlo-testing"
+        
+        app.log(msgs.get_text("info", "configuring_custom_sync", scope_uid=scope_uid))
+        qdl_exe: str = get_executable("qdl", config)
+        try:
+            subprocess.run([qdl_exe, "sync", "create", "custom", scope_uid, data_dir, PLUGIN_VERSION], check=False)
+        except Exception as e:
+            app.log(msgs.get_text("warnings", "could_not_create_sync", e=e), style="yellow")
+            
+        app.log(msgs.get_text("info", "configuring_sync_service"))
+        try:
+            subprocess.run([qdl_exe, "sync", "update", "--scan_interval", "5"], check=False)
+        except Exception as e:
+            app.log(msgs.get_text("warnings", "could_not_configure_sync", e=e), style="yellow")
     
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        msgs.echo("info", "shutting_down")
-        # atexit handler will automatically take care of process cleanup
+        app.log(msgs.get_text("info", "starting_backup_sync"))
+        try:
+            subprocess.run([qdl_exe, "sync", "plugin", "start"], check=False)
+        except Exception as e:
+            app.log(msgs.get_text("warnings", "could_not_start_sync", e=e), style="yellow")
+            
+        app.log(msgs.get_text("info", "services_running"))
+        app.log(msgs.get_text("info", "press_ctrl_c"))
+        
+        try:
+            # Start Live update loop for heatmap
+            last_fetch_time: float = 0.0
+            fetch_interval: float = 5.0 # Check every 5 seconds
+            
+            while True:
+                current_time: float = time.time()
+                if current_time - last_fetch_time >= fetch_interval:
+                    counts = get_datasets_per_day(scope_uid, strategy)
+                    app.update_heatmap(counts)
+                    live.update(app.get_renderable())
+                    last_fetch_time = current_time
+                    
+                time.sleep(1)
+        except KeyboardInterrupt:
+            app.log(msgs.get_text("info", "shutting_down"))
+            # Give it a moment to render the shutdown message before closing live context
+            live.update(app.get_renderable())
+            time.sleep(0.5)
 
 if __name__ == "__main__":
     main()

@@ -4,7 +4,13 @@ import tarfile
 import json
 import PyInstaller.__main__
 
+def get_plugin_version() -> str:
+    v_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "version.json")
+    with open(v_path, "r") as f:
+        return json.load(f).get("custom_qdl_plugin_version", "0.1.0")
+
 def build():
+    version = get_plugin_version()
     print("Cleaning up old builds...")
     dist_dir = 'custom_qdl_plugin/dist'
     build_dir = 'custom_qdl_plugin/build'
@@ -29,7 +35,7 @@ def build():
     # 2. Generate metadata.json
     metadata = {
         "name": "custom",
-        "version": "0.1.0",
+        "version": version,
         "description": "Custom Data Collection Plugin",
         "author": "User",
         "binary": "bin/qdl-custom-plugin.exe",
