@@ -28,6 +28,7 @@ class StatusPanel:
         self.scope_name = scope
         self.setup_name = setup
         self.device_name = device
+    
     def update_state(self, credentials: str = None, daemon: str = None, sync: str = None, datasets: str = None) -> None:
         """Update backend statuses."""
         if credentials:

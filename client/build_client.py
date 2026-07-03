@@ -42,6 +42,7 @@ def build() -> None:
     
     messages_path: Path = root_dir / "client" / "messages.json"
     version_path: Path = root_dir / "version.json"
+    plugin_settings_path: Path = root_dir / "plugin_settings.json"
     
     PyInstaller.__main__.run([
         str(cli_script),
@@ -53,6 +54,7 @@ def build() -> None:
         f'--add-data={tarball_path};.',
         f'--add-data={messages_path};.',
         f'--add-data={version_path};.',
+        f'--add-data={plugin_settings_path};.',
         '--noconfirm'
     ])
     
