@@ -24,6 +24,7 @@ Place plugin executable here  plugins/qmi/<VERSION>/bin/qdl-qmi-plugin.exe
 
 Then we can configure the sync service as follows (example):
 $ qdl sync create "qmi" "dicarlo-testing" D:/sean/programs/PyCharmProjects/QutechDataLakeManager/EmptyDataDirectory/ "0.3.0"
+$ qdl sync create "custom" "dicarlo-testing" D:/sean/programs/PyCharmProjects/QutechDataLakeManager/EmptyDataDirectory/ "0.1.0"
 ```
 The sync for QMI data source was created successfully
 Sync service configuration:

@@ -452,6 +452,7 @@ class QdlClientApp(App[None]):
         data_dir = self.qdl_config.data_dir
         
         self.run_and_log([qdl_exe, "sync", "create", "--scan_interval", str(int(self.sync_interval)), "custom", scope_uid, data_dir, PLUGIN_VERSION])
+        self.run_and_log([qdl_exe, "sync", "update", "--sync_interval", "1"])
         self.run_and_log([qdl_exe, "sync", "plugin", "start"])
         
         self.call_from_thread(self.write_log, "Services running! Press Ctrl+C (or Ctrl+Q) to exit.")
@@ -472,7 +473,7 @@ class QdlClientApp(App[None]):
                         stripped = line.strip()
                         if prefix == "[SYNC]" and ("PLUGIN_HEARTBEAT_UPDATE" in stripped or "PLUGIN_SCAN_DATASETS" in stripped):
                             self.call_from_thread(setattr, self.status_widget.status_panel, "sync_timer_state", SyncTimerState.ACTIVE)
-                            self.call_from_thread(self.status_widget.status_panel.update_sync_time, 0.0, self.sync_interval)
+                            self.call_from_thread(self.status_widget.status_panel.update_sync_time, 0.0, interval=self.sync_interval)
                             
                         should_log = (prefix == "[DAEMON]" and self.show_daemon_logs) or (prefix == "[SYNC]" and self.show_sync_logs)
                         if should_log:

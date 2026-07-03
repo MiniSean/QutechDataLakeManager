@@ -41,9 +41,20 @@ class PluginContext:
         self.session_id = uuid.uuid4()
         self.running = True
 
+import logging
+
+logging.basicConfig(
+    filename='plugin_debug.log',
+    level=logging.DEBUG,
+    format='%(asctime)s [%(levelname)s] %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 async def heartbeat_loop(ctx: PluginContext, pub_socket: zmq.asyncio.Socket):
     """Periodically sends heartbeat messages to the Sync Service."""
+    logger.debug("Heartbeat loop started")
     while ctx.running:
+        logger.debug(f"Heartbeat tick. State: {ctx.state}, Connection: {ctx.connection}")
         if ctx.connection == PluginConnectionState.CONNECTED:
             uptime = int(time.time() - ctx.start_time)
             hb_payload = PluginHeartbeatPayload(status=ctx.state, connection_status=ctx.connection, uptime=uptime)
@@ -53,15 +64,21 @@ async def heartbeat_loop(ctx: PluginContext, pub_socket: zmq.asyncio.Socket):
                 type="heartbeat",
                 payload=hb_payload
             )
+            logger.debug("Sending heartbeat...")
             await pub_socket.send_json(hb_msg.model_dump(mode='json'))
+            logger.debug("Heartbeat sent.")
         await asyncio.sleep(5.0)
+    logger.debug("Heartbeat loop exiting")
 
 async def scan_loop(ctx: PluginContext, pair_socket: zmq.asyncio.Socket):
     """Periodically scans the data directory and sends DataFileReadyRequests."""
+    logger.debug("Scan loop started")
     while ctx.running:
         if ctx.state == PluginState.HEALTHY and ctx.data_location:
             try:
-                datasets_ready = scanner.scan_datasets(ctx.data_location, ctx.scope_uid)
+                logger.debug(f"Starting to scan datasets at {ctx.data_location}")
+                datasets_ready = await asyncio.to_thread(scanner.scan_datasets, ctx.data_location, ctx.scope_uid)
+                logger.debug(f"Scan finished. Found {len(datasets_ready)} datasets ready.")
                 for ds in datasets_ready:
                     # Extract internal metadata
                     dataset_dir = ds.pop("dataset_dir")
@@ -86,34 +103,28 @@ async def scan_loop(ctx: PluginContext, pair_socket: zmq.asyncio.Socket):
                         type="data_file_ready",
                         payload=payload
                     )
+                    logger.debug(f"Sending DataFileReadyRequest for {dataset_dir}")
                     await pair_socket.send_json(req_msg.model_dump(mode='json'))
                     
-                    # Wait for response
-                    # Since DEALER is multiplexed, we should ideally use a proper matching mechanism,
-                    # but for this simple plugin, we assume the next message is the response.
-                    # To be robust, we'll read it in the main receive loop, but to keep things simple here,
-                    # we will just send and assume the main loop processes the DataFileReadyResponse.
-                    # Wait, the main loop receives all messages. We need to wait for the specific response.
-                    # Let's put a small delay. State updating will be handled here if we implement a future dictionary,
-                    # but since the plugin is simple, let's just update state immediately upon send for now, 
-                    # or better: we should wait for response. 
-                    # To do this cleanly, we'll just update state immediately to avoid blocking, 
-                    # assuming Sync Service will retry if it fails.
                     for rel_path, checksum, item_path in file_paths:
                         state.update_state(dataset_dir, rel_path, checksum)
                         
             except Exception as e:
+                logger.error(f"Error during scan: {e}", exc_info=True)
                 print(f"Error during scan: {e}")
                 traceback.print_exc()
         
         await asyncio.sleep(ctx.scan_interval)
+    logger.debug("Scan loop exiting")
 
 async def receive_loop(ctx: PluginContext, pair_socket: zmq.asyncio.Socket):
     """Listens for commands from the Sync Service."""
+    logger.debug("Receive loop started")
     while ctx.running:
         try:
             msg = await pair_socket.recv_json()
             msg_type = msg.get("type")
+            logger.debug(f"Received message of type: {msg_type}")
             
             if msg_type == "init":
                 req = PluginInitializeRequest(**msg)
@@ -131,6 +142,7 @@ async def receive_loop(ctx: PluginContext, pair_socket: zmq.asyncio.Socket):
                     type="init_response",
                     payload=resp_payload
                 )
+                logger.debug("Sending init_response")
                 await pair_socket.send_json(resp.model_dump(mode='json'))
                 
             elif msg_type == "term":
@@ -143,21 +155,27 @@ async def receive_loop(ctx: PluginContext, pair_socket: zmq.asyncio.Socket):
                     type="term_response",
                     payload=resp_payload
                 )
+                logger.debug("Sending term_response and stopping plugin...")
                 await pair_socket.send_json(resp.model_dump(mode='json'))
                 ctx.state = PluginState.TERMINATED
                 ctx.running = False
                 
             elif msg_type == "data_file_ready_response":
                 # We update state optimistically in scan_loop, so we just log this.
+                logger.debug("Received data_file_ready_response")
                 pass
                 
         except Exception as e:
+            logger.error(f"Error in receive loop: {e}", exc_info=True)
             print(f"Error in receive loop: {e}")
             traceback.print_exc()
+    logger.debug("Receive loop exiting")
 
 async def main():
     router_address = os.environ.get("QDL_SYNC_SERVICE_ADDRESS", "tcp://localhost:4205")
     pub_address = os.environ.get("QDL_SYNC_SERVICE_PUB_ADDRESS", "tcp://localhost:4204")
+    
+    logger.info(f"Starting custom QDL plugin. Router: {router_address}, Pub: {pub_address}")
     
     context = zmq.asyncio.Context()
     
@@ -178,6 +196,7 @@ async def main():
         receive_loop(plugin_ctx, pair_socket),
         scan_loop(plugin_ctx, pair_socket)
     )
+    logger.info("Main gather finished.")
 
 if __name__ == "__main__":
     if sys.platform == 'win32':
@@ -185,4 +204,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
+        logger.info("Plugin stopped manually.")
         print("Plugin stopped manually.")
