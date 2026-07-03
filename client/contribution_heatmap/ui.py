@@ -9,6 +9,13 @@ from rich.table import Table
 from rich.text import Text
 from rich.align import Align
 import rich.box
+import os
+import sys
+
+# Add client dir to sys path to import status_panel
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from status_panel.ui import StatusPanel
+
 
 class HeatmapGrid:
     # region Class Constructor
@@ -97,9 +104,11 @@ class CLIApp:
         self.logs: List[Text] = []
         self._max_logs: int = 100
         self.show_border: bool = show_border
+        self.status_panel: StatusPanel = StatusPanel()
+        self._last_counts: Dict[datetime.date, int] = {}
         
         self.layout.split_column(
-            Layout(name="top", size=12), # Header, Heatmap, Legend
+            Layout(name="top", size=20), # Header, Heatmap, Legend, Status
             Layout(name="bottom")
         )
         
@@ -115,15 +124,23 @@ class CLIApp:
         if len(self.logs) > self._max_logs:
             self.logs = self.logs[-self._max_logs:]
 
-    def update_heatmap(self, counts: Dict[datetime.date, int]) -> None:
+    def update_heatmap(self, counts: Optional[Dict[datetime.date, int]] = None) -> None:
         """Refreshes the top panel with the latest counts."""
+        if counts is not None:
+            self._last_counts = counts
+        else:
+            counts = self._last_counts
+            
         grid: Table = self.heatmap.render(counts)
         legend: Text = self.heatmap.render_legend()
+        status_text: Text = self.status_panel.render()
         
         group: Group = Group(
             grid,
             Text(""), # spacer
-            Align.right(legend)
+            Align.right(legend),
+            Text(""), # spacer
+            status_text
         )
         
         self.layout["top"].update(Panel(group, title="[bold]Contribution Heatmap[/bold]", border_style="blue"))
@@ -141,7 +158,7 @@ class CLIApp:
         
     def get_live_context(self) -> Live:
         """Returns the Rich Live context for rendering."""
-        return Live(self.get_renderable(), console=self.console, refresh_per_second=1, screen=True)
+        return Live(self.get_renderable(), console=self.console, refresh_per_second=10, screen=True)
     # endregion
 
 if __name__ == "__main__":

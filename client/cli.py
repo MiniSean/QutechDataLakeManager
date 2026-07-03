@@ -167,23 +167,34 @@ def extract_plugin() -> None:
     else:
         msgs.print("warnings", "plugin_not_found", bundled_path=bundled_path)
 
-def ensure_authenticated(config: MutableMapping[str, Any]) -> None:
+def ensure_authenticated(config: MutableMapping[str, Any], app: CLIApp) -> bool:
     """Validates the local QDL token and initiates a login flow if invalid."""
+    app.log("[Await] user login", style="bold yellow")
+    app.status_panel.update_state(credentials="Pending")
     try:
         # Try initializing the SDK. If the token is missing/expired, this or a subsequent check would fail.
         qdl_settings: Any = qdl.configure()
         if not getattr(qdl_settings, 'api_token', None):
             raise Exception("No API token found in configuration.")
         msgs.echo("info", "auth_success")
+        app.log("Login succeeded", style="bold green")
+        app.status_panel.update_state(credentials="Pass")
+        return True
     except Exception as e:
         msgs.echo("info", "starting_login")
+        app.log(f"Starting login flow... {e}", style="yellow")
         try:
             qdl_exe: str = get_executable("qdl", config)
             subprocess.run([qdl_exe, "login"], check=True)
             # Re-configure after login
             qdl.configure() 
+            app.log("Login succeeded", style="bold green")
+            app.status_panel.update_state(credentials="Pass")
+            return True
         except Exception as ex:
-            fatal_error(msgs.get_text("errors", "login_error", ex=ex))
+            app.log(f"Login failed. exit application using CNTR + C", style="bold red")
+            app.status_panel.update_state(credentials="Failed")
+            return False
 
 def stream_logs(proc: subprocess.Popen[Any], app: CLIApp, prefix: str) -> None:
     """Streams stdout from a subprocess into the app logger continuously."""
@@ -191,6 +202,8 @@ def stream_logs(proc: subprocess.Popen[Any], app: CLIApp, prefix: str) -> None:
         for line in iter(proc.stdout.readline, ''):
             if line:
                 app.log(f"{prefix} {line.strip()}")
+                if prefix == "[SYNC]" and ("PLUGIN_HEARTBEAT_UPDATE" in line or "PLUGIN_SCAN_DATASETS" in line):
+                    app.status_panel.update_sync_time(0.0)
             if proc.poll() is not None:
                 break
 
@@ -209,33 +222,11 @@ def main() -> None:
     
     config: MutableMapping[str, Any] = load_config()
     
-    # Interactive Prompts
-    default_dir: str = config.get("data_dir", "D:/sean/programs/PyCharmProjects/QutechDataLakeManager/EmptyDataDirectory/")
-    data_dir_str: str = msgs.prompt("prompts", "data_dir", default=default_dir)
-    # Ensure POSIX formatting for QDL
-    data_dir: str = Path(data_dir_str).as_posix()
-    
-    fridge: str = msgs.prompt("prompts", "fridge", default=config.get("fridge", "dicarlo"))
-    device: str = msgs.prompt("prompts", "device", default=config.get("device", "testing"))
     show_border: bool = click.prompt("Show UI box border for the logs panel? [y/N]", default="n").lower().startswith("y")
-    
-    # Save preferences
-    config.update({
-        "data_dir": data_dir,
-        "fridge": fridge,
-        "device": device
-    })
-    save_config(config)
-    
-    # Authenticate and Extract Plugin
-    ensure_authenticated(config)
-    extract_plugin()
     
     global daemon_proc, sync_proc
     
     # Windows detached process flags
-    # 0x00000008 = DETACHED_PROCESS
-    # 0x00000200 = CREATE_NEW_PROCESS_GROUP
     creationflags: int = 0
     if sys.platform == 'win32':
         creationflags = 0x00000008 | 0x00000200
@@ -244,23 +235,51 @@ def main() -> None:
     strategy: QdlDatasetNameDateExtraction = QdlDatasetNameDateExtraction()
     
     with app.get_live_context() as live:
+        # Authenticate inside UI
+        if not ensure_authenticated(config, app):
+            try:
+                while True: time.sleep(1)
+            except KeyboardInterrupt:
+                return
+
+        extract_plugin()
+        
+        # Suspend UI for prompts
+        live.stop()
+        default_dir: str = config.get("data_dir", "D:/sean/programs/PyCharmProjects/QutechDataLakeManager/EmptyDataDirectory/")
+        data_dir_str: str = msgs.prompt("prompts", "data_dir", default=default_dir)
+        data_dir: str = Path(data_dir_str).as_posix()
+        
+        fridge: str = msgs.prompt("prompts", "fridge", default=config.get("fridge", "dicarlo"))
+        device: str = msgs.prompt("prompts", "device", default=config.get("device", "testing"))
+        
+        config.update({
+            "data_dir": data_dir,
+            "fridge": fridge,
+            "device": device
+        })
+        save_config(config)
+        live.start()
+        
         app.log(msgs.get_text("info", "starting_daemon"))
+        app.status_panel.update_state(daemon="Pending")
         daemon_exe: str = get_executable("qdl-daemon", config)
         try:
             daemon_proc = subprocess.Popen([daemon_exe], creationflags=creationflags, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             threading.Thread(target=stream_logs, args=(daemon_proc, app, "[DAEMON]"), daemon=True).start()
         except Exception as e:
-            # Drop out of live context on fatal error so prompt is visible
-            pass
-            fatal_error(msgs.get_text("errors", "daemon_start_error", e=e))
+            app.status_panel.update_state(daemon="Failed")
+            app.log(f"[DAEMON] Failed to start: {e}", style="red")
             
         app.log(msgs.get_text("info", "starting_sync"))
+        app.status_panel.update_state(sync="Pending")
         sync_exe: str = get_executable("qdl-sync-service", config)
         try:
             sync_proc = subprocess.Popen([sync_exe], creationflags=creationflags, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             threading.Thread(target=stream_logs, args=(sync_proc, app, "[SYNC]"), daemon=True).start()
         except Exception as e:
-            fatal_error(msgs.get_text("errors", "sync_start_error", e=e))
+            app.status_panel.update_state(sync="Failed")
+            app.log(f"[SYNC] Failed to start: {e}", style="red")
         
         # Allow time for services to boot up before attempting to communicate via CLI
         time.sleep(3)
@@ -297,13 +316,25 @@ def main() -> None:
             
             while True:
                 current_time: float = time.time()
+                
+                # Check daemon and sync status
+                if daemon_proc:
+                    app.status_panel.update_state(daemon="Pass" if daemon_proc.poll() is None else "Failed")
+                if sync_proc:
+                    app.status_panel.update_state(sync="Pass" if sync_proc.poll() is None else "Failed")
+                
+                # Update time since sync
+                app.status_panel.time_since_sync += 0.1
+                
                 if current_time - last_fetch_time >= fetch_interval:
                     counts = get_datasets_per_day(scope_uid, strategy)
                     app.update_heatmap(counts)
-                    live.update(app.get_renderable())
                     last_fetch_time = current_time
                     
-                time.sleep(1)
+                # We call update_heatmap every 0.1s to re-render the status panel spinner and timer
+                app.update_heatmap()
+                live.update(app.get_renderable())
+                time.sleep(0.1)
         except KeyboardInterrupt:
             app.log(msgs.get_text("info", "shutting_down"))
             # Give it a moment to render the shutdown message before closing live context
