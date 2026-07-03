@@ -52,7 +52,7 @@ class HeatmapGrid:
             # If it's the first column or the month changed from the previous column
             if i == 0 or col_date.month != col_dates[i-1].month:
                 header = calendar.month_abbr[col_date.month]
-            table.add_column(header, justify="center", width=2)
+            table.add_column(header, justify="center")
 
         # 7 rows for days (Monday = 0, Sunday = 6)
         # However, standard Github heatmap is Sun-Sat. Let's do Mon-Sun.
@@ -147,7 +147,9 @@ class CLIApp:
 if __name__ == "__main__":
     import time
     import random
-    
+    from data_fetcher import get_datasets_per_day
+    from strategy_tuid_extraction import QdlDatasetNameDateExtraction
+        
     # Try it with and without borders by changing this!
     test_app = CLIApp(show_border=False)
     
@@ -155,16 +157,20 @@ if __name__ == "__main__":
         test_app.log("Starting TUI test mode...", style="bold blue")
         test_app.log("Simulating background daemon processes...")
         
-        mock_counts = {}
-        today_date = datetime.date.today()
+        test_app.log("Fetching actual data from QDL...", style="bold yellow")
+        live.update(test_app.get_renderable())
         
-        # Populate random historical data
-        for i in range(365):
-            date = today_date - datetime.timedelta(days=i)
-            if random.random() > 0.4:
-                mock_counts[date] = random.randint(1, 5)
+        counts = get_datasets_per_day(scope_uid="dicarlo-testing", strategy=QdlDatasetNameDateExtraction())
         
-        test_app.update_heatmap(mock_counts)
+        # Log non-zero counts
+        if not counts:
+            test_app.log("[BACKEND] No data returned from backend.", style="bold red")
+        else:
+            for date_val, count in sorted(counts.items()):
+                if count > 0:
+                    test_app.log(f"[BACKEND] Found {count} datasets on {date_val}", style="cyan")
+        
+        test_app.update_heatmap(counts)
         live.update(test_app.get_renderable())
         
         for i in range(20):
@@ -174,6 +180,11 @@ if __name__ == "__main__":
                 test_app.log(f"[SYNC] Connected to QDL remote server.", style="green")
             live.update(test_app.get_renderable())
             
-        test_app.log("Test mode complete. Exiting.", style="bold red")
+        test_app.log("Test mode ready. Press Ctrl+C to exit.", style="bold green")
         live.update(test_app.get_renderable())
-        time.sleep(1)
+        
+        try:
+            while True:
+                time.sleep(0.1)
+        except KeyboardInterrupt:
+            pass

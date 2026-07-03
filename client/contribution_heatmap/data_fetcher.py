@@ -1,7 +1,7 @@
 import datetime
 from typing import Dict, Any, Sequence
 import qdl
-from .strategy_tuid_extraction import DateExtractionStrategy
+from contribution_heatmap.strategy_tuid_extraction import DateExtractionStrategy
 
 def get_datasets_per_day(scope_uid: str, strategy: DateExtractionStrategy) -> Dict[datetime.date, int]:
     """Fetches datasets from the QDL SDK and groups them by date using the provided strategy."""
