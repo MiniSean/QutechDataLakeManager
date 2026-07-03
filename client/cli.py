@@ -23,12 +23,12 @@ from textual import work
 from client.contribution_heatmap.ui import HeatmapGrid
 from client.contribution_heatmap.data_fetcher import get_datasets_per_day
 from client.contribution_heatmap.strategy_tuid_extraction import QdlDatasetNameDateExtraction
-from client.status_panel.ui import StatusPanel
+from client.status_panel.ui import StatusPanel, SyncTimerState
 from client.config import ClientConfig
 from rich.console import Group
 from rich.align import Align
 
-from rich.align import Align
+
 def get_plugin_version() -> str:
     if hasattr(sys, "_MEIPASS"):
         v_path = Path(sys._MEIPASS) / "version.json"
@@ -173,13 +173,13 @@ class SetupForm(Container):
             yield Button("Browse", id="btn_browse")
         with Horizontal(id="fridge_device_row"):
             with Vertical(classes="flex_col"):
-                yield Label("Scope:")
+                yield Label("Scope ID:")
                 yield Input(value=self.config.scope, id="input_scope")
             with Vertical(classes="flex_col"):
-                yield Label("Setup Name:")
+                yield Label("Setup ID:")
                 yield Input(value=self.config.setup, id="input_setup")
             with Vertical(classes="flex_col"):
-                yield Label("Device Name:")
+                yield Label("Device ID:")
                 yield Input(value=self.config.device, id="input_device")
         yield Button("Continue", id="btn_start", variant="primary")
 
@@ -441,18 +441,17 @@ class QdlClientApp(App[None]):
             self.call_from_thread(self.write_log, "[blue]Services managed externally. Assuming daemon and sync-service are running.[/blue]")
             self.call_from_thread(self.status_widget.status_panel.update_state, daemon="Pass", sync="Pass")
             
-        self.call_from_thread(setattr, self.status_widget.status_panel, "show_sync_timer", True)
-        time.sleep(3)
+        self.call_from_thread(setattr, self.status_widget.status_panel, "sync_timer_state", SyncTimerState.AWAITING_SYNC)
+        time.sleep(2)
         
         scope_uid = self.qdl_config.scope
         qdl_exe = get_executable("qdl", self.qdl_config)
         data_dir = self.qdl_config.data_dir
         
-        self.run_and_log([qdl_exe, "sync", "create", "custom", scope_uid, data_dir, PLUGIN_VERSION])
-        self.run_and_log([qdl_exe, "sync", "update", "--scan_interval", str(int(self.sync_interval))])
+        self.run_and_log([qdl_exe, "sync", "create", "--scan_interval", str(int(self.sync_interval)), "custom", scope_uid, data_dir, PLUGIN_VERSION])
         self.run_and_log([qdl_exe, "sync", "plugin", "start"])
         
-        self.call_from_thread(self.write_log, "Services running! Press Ctrl+C to exit.")
+        self.call_from_thread(self.write_log, "Services running! Press Ctrl+C (or Ctrl+Q) to exit.")
 
     def run_and_log(self, cmd: List[str]) -> None:
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -469,7 +468,7 @@ class QdlClientApp(App[None]):
                     if line:
                         stripped = line.strip()
                         if prefix == "[SYNC]" and ("PLUGIN_HEARTBEAT_UPDATE" in stripped or "PLUGIN_SCAN_DATASETS" in stripped):
-                            self.call_from_thread(setattr, self.status_widget.status_panel, "has_synced", True)
+                            self.call_from_thread(setattr, self.status_widget.status_panel, "sync_timer_state", SyncTimerState.ACTIVE)
                             self.call_from_thread(self.status_widget.status_panel.update_sync_time, 0.0, self.sync_interval)
                             
                         should_log = (prefix == "[DAEMON]" and self.show_daemon_logs) or (prefix == "[SYNC]" and self.show_sync_logs)

@@ -1,8 +1,14 @@
 from typing import Any
 import time
+from enum import Enum, auto
 
 from rich.text import Text
 from rich.table import Table
+
+class SyncTimerState(Enum):
+    AWAITING_INPUT = auto()
+    AWAITING_SYNC = auto()
+    ACTIVE = auto()
 
 class StatusPanel:
     # region Class Constructor
@@ -15,7 +21,7 @@ class StatusPanel:
         self.sync_interval: float = 5.0
         self.spinner_chars: list[str] = ['|', '/', '-', '\\']
         self.spinner_idx: int = 0
-        self.show_sync_timer: bool = False
+        self.sync_timer_state: SyncTimerState = SyncTimerState.AWAITING_INPUT
         
         self.scope_name: str = "N/A"
         self.setup_name: str = "N/A"
@@ -63,15 +69,21 @@ class StatusPanel:
             return status
 
         text = Text.from_markup("Client status:\n")
-        text.append_text(Text.from_markup(f"| - \\[scope] {self.scope_name} \\[setup] {self.setup_name} \\[device] {self.device_name}\n"))
         text.append_text(Text.from_markup(f"| - Credentials \\[{format_status(self.credentials_status)}]\n"))
         text.append_text(Text.from_markup(f"| - QDL Daemon \\[{format_status(self.daemon_status)}]\n"))
         text.append_text(Text.from_markup(f"| - QDL Sync Service \\[{format_status(self.sync_status)}]\n"))
         text.append_text(Text.from_markup(f"| - Datasets synced {self.datasets_synced}\n"))
         
-        if self.show_sync_timer:
-            spinner = self.spinner_chars[self.spinner_idx]
-            text.append_text(Text.from_markup(f"\\[{spinner}] Time since last sync {int(self.time_since_sync)}/{int(self.sync_interval)} \\[s]"))
-        
+        spinner = self.spinner_chars[self.spinner_idx]
+        if self.sync_timer_state == SyncTimerState.AWAITING_INPUT:
+            text.append_text(Text.from_markup(f"\\[{spinner}] Awaiting user input...\n"))
+        elif self.sync_timer_state == SyncTimerState.AWAITING_SYNC:
+            text.append_text(Text.from_markup(f"\\[{spinner}] Awaiting sync action...\n"))
+        elif self.sync_timer_state == SyncTimerState.ACTIVE:
+            text.append_text(Text.from_markup(f"\\[{spinner}] Time since last sync {int(self.time_since_sync)}/{int(self.sync_interval)} \\[s]\n"))
+
+        if self.sync_timer_state != SyncTimerState.AWAITING_INPUT:
+            text.append_text(Text.from_markup(f"\\[scope] {self.scope_name} \\[setup] {self.setup_name} \\[device] {self.device_name}"))
+
         return text
     # endregion
