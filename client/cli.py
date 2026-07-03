@@ -10,7 +10,8 @@ import logging
 from pathlib import Path
 from typing import Any, Optional, Mapping, MutableMapping, List, Dict, Callable
 
-logging.basicConfig(filename="client_debug.log", level=logging.DEBUG, format='%(asctime)s %(levelname)s %(message)s')
+# Uncomment the line below to enable debug logging to file for troubleshooting
+# logging.basicConfig(filename="client_debug.log", level=logging.DEBUG, format='%(asctime)s %(levelname)s %(message)s')
 
 import click
 import qdl
@@ -50,7 +51,8 @@ def get_plugin_settings() -> Dict[str, Any]:
     if settings_path.exists():
         with open(settings_path, "r") as f:
             return json.load(f)
-    return {"sync_interval": 5, "manage_services": True, "show_daemon_logs": True, "show_sync_logs": True}
+
+    return {"sync_interval": 20, "manage_services": True, "show_daemon_logs": True, "show_sync_logs": True}
 
 daemon_proc: Optional[subprocess.Popen[Any]] = None
 sync_proc: Optional[subprocess.Popen[Any]] = None
@@ -264,7 +266,7 @@ class QdlClientApp(App[None]):
         self.strategy = QdlDatasetNameDateExtraction()
         
         settings = get_plugin_settings()
-        self.sync_interval = float(settings.get("sync_interval", 5))
+        self.sync_interval = float(settings.get("sync_interval"))
         self.manage_services = bool(settings.get("manage_services", True))
         self.show_daemon_logs = bool(settings.get("show_daemon_logs", True))
         self.show_sync_logs = bool(settings.get("show_sync_logs", True))
@@ -310,6 +312,7 @@ class QdlClientApp(App[None]):
         
         scope_init = self.qdl_config.scope
         self.status_widget.status_panel.update_config_info(scope_init, self.qdl_config.setup, self.qdl_config.device)
+        self.status_widget.status_panel.sync_interval = self.sync_interval
         
         # Render empty heatmap immediately so it isn't delayed
         heatmap_grid = HeatmapGrid(num_weeks=52)
@@ -318,7 +321,7 @@ class QdlClientApp(App[None]):
         self.heatmap_widget.update_heatmap(grid_table, legend_text)
         
         self.set_interval(0.1, self.tick_status)
-        self.set_interval(5.0, self.fetch_heatmap)
+        self.set_interval(self.sync_interval, self.fetch_heatmap)
         self.fetch_heatmap()
         
     def tick_status(self) -> None:
