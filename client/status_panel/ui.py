@@ -15,9 +15,19 @@ class StatusPanel:
         self.sync_interval: float = 5.0
         self.spinner_chars: list[str] = ['|', '/', '-', '\\']
         self.spinner_idx: int = 0
+        self.show_sync_timer: bool = False
+        
+        self.scope_name: str = "N/A"
+        self.setup_name: str = "N/A"
+        self.device_name: str = "N/A"
     # endregion
 
     # region Class Methods
+    def update_config_info(self, scope: str, setup: str, device: str) -> None:
+        """Update config names for display."""
+        self.scope_name = scope
+        self.setup_name = setup
+        self.device_name = device
     def update_state(self, credentials: str = None, daemon: str = None, sync: str = None, datasets: str = None) -> None:
         """Update backend statuses."""
         if credentials:
@@ -52,13 +62,15 @@ class StatusPanel:
             return status
 
         text = Text.from_markup("Client status:\n")
+        text.append_text(Text.from_markup(f"| - \\[scope] {self.scope_name} \\[setup] {self.setup_name} \\[device] {self.device_name}\n"))
         text.append_text(Text.from_markup(f"| - Credentials \\[{format_status(self.credentials_status)}]\n"))
         text.append_text(Text.from_markup(f"| - QDL Daemon \\[{format_status(self.daemon_status)}]\n"))
         text.append_text(Text.from_markup(f"| - QDL Sync Service \\[{format_status(self.sync_status)}]\n"))
         text.append_text(Text.from_markup(f"| - Datasets synced {self.datasets_synced}\n"))
         
-        spinner = self.spinner_chars[self.spinner_idx]
-        text.append_text(Text.from_markup(f"\\[{spinner}] Time since last sync {int(self.time_since_sync)}/{int(self.sync_interval)} \\[s]"))
+        if self.show_sync_timer:
+            spinner = self.spinner_chars[self.spinner_idx]
+            text.append_text(Text.from_markup(f"\\[{spinner}] Time since last sync {int(self.time_since_sync)}/{int(self.sync_interval)} \\[s]"))
         
         return text
     # endregion

@@ -1,3 +1,3 @@
-$env:PYTHONPATH = "$PSScriptRoot\client"
-python "$PSScriptRoot\client\cli.py"
+$env:PYTHONPATH = "$PSScriptRoot"
+python -m client.cli
 pause
