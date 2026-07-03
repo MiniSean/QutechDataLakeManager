@@ -1,0 +1,8 @@
+pip install qdl-sdk --index-url https://gitlab.com/api/v4/projects/66914457/packages/pypi/simple
+pip install qdl-cli --index-url https://gitlab.com/api/v4/projects/66914457/packages/pypi/simple
+pip install qdl-daemon --index-url https://gitlab.com/api/v4/projects/66914457/packages/pypi/simple
+# QDL sync service
+pip install qdl-sync-service --index-url https://gitlab.com/api/v4/projects/66914457/packages/pypi/simple
+# QDL-specific QMI plugin (Failed for now because it requires python >=3.12 <3.14 and I am running a 3.11 environment. This might be a problem)
+pip install qdl-qmi-plugin --index-url https://gitlab.com/api/v4/projects/66914457/packages/pypi/simple
+textual

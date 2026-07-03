@@ -77,37 +77,47 @@ async def scan_loop(ctx: PluginContext, pair_socket: zmq.asyncio.Socket):
         if ctx.state == PluginState.HEALTHY and ctx.data_location:
             try:
                 logger.debug(f"Starting to scan datasets at {ctx.data_location}")
-                datasets_ready = await asyncio.to_thread(scanner.scan_datasets, ctx.data_location, ctx.scope_uid)
-                logger.debug(f"Scan finished. Found {len(datasets_ready)} datasets ready.")
-                for ds in datasets_ready:
-                    # Extract internal metadata
-                    dataset_dir = ds.pop("dataset_dir")
-                    dataset_files = ds["dataset_files"]
+                valid_folders = await asyncio.to_thread(scanner.find_valid_dataset_folders, ctx.data_location)
+                logger.debug(f"Found {len(valid_folders)} valid dataset folders to process.")
+                
+                for i, dataset_dir in enumerate(valid_folders):
+                    if not ctx.running:
+                        break
+                        
+                    logger.debug(f"Processing dataset {i+1}/{len(valid_folders)} for date: {dataset_dir.parent.name}, dataset: {dataset_dir.name}")
+                    ds = await asyncio.to_thread(scanner.process_single_dataset, dataset_dir, ctx.scope_uid)
                     
-                    # Pop out item_path to prevent it being sent in JSON
-                    file_paths = []
-                    clean_files = []
-                    for f in dataset_files:
-                        item_path = f.pop("item_path")
-                        file_paths.append((f["qdl_file_dir"], f["file_checksum"], item_path))
-                        clean_files.append(f)
-                    
-                    ds["dataset_files"] = clean_files
-                    
-                    # Send DataFileReadyRequest
-                    payload = DataFileReadyRequestPayload(**ds)
-                    req_msg = DataFileReadyRequest(
-                        session_id=ctx.session_id,
-                        msg_id=uuid.uuid4(),
-                        timestamp=time.time(),
-                        type="data_file_ready",
-                        payload=payload
-                    )
-                    logger.debug(f"Sending DataFileReadyRequest for {dataset_dir}")
-                    await pair_socket.send_json(req_msg.model_dump(mode='json'))
-                    
-                    for rel_path, checksum, item_path in file_paths:
-                        state.update_state(dataset_dir, rel_path, checksum)
+                    if ds:
+                        # Extract internal metadata
+                        dataset_dir_from_ds = ds.pop("dataset_dir")
+                        dataset_files = ds["dataset_files"]
+                        
+                        # Pop out item_path to prevent it being sent in JSON
+                        file_paths = []
+                        clean_files = []
+                        for f in dataset_files:
+                            item_path = f.pop("item_path")
+                            file_paths.append((f["qdl_file_dir"], f["file_checksum"], item_path))
+                            clean_files.append(f)
+                        
+                        ds["dataset_files"] = clean_files
+                        
+                        # Send DataFileReadyRequest
+                        payload = DataFileReadyRequestPayload(**ds)
+                        req_msg = DataFileReadyRequest(
+                            session_id=ctx.session_id,
+                            msg_id=uuid.uuid4(),
+                            timestamp=time.time(),
+                            type="data_file_ready",
+                            payload=payload
+                        )
+                        logger.debug(f"Sending DataFileReadyRequest for {dataset_dir_from_ds}")
+                        await pair_socket.send_json(req_msg.model_dump(mode='json'))
+                        
+                        for rel_path, checksum, item_path in file_paths:
+                            state.update_state(dataset_dir_from_ds, rel_path, checksum)
+                            
+                logger.debug("Scan pass completed.")
                         
             except Exception as e:
                 logger.error(f"Error during scan: {e}", exc_info=True)

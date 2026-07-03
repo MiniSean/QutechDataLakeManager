@@ -82,7 +82,7 @@ class HeatmapGrid:
         
     def render_legend(self) -> Text:
         """Renders the right-aligned legend for dataset counts."""
-        legend: Text = Text("Dataset count: Less ", justify="right")
+        legend: Text = Text("Dataset count: Less ", justify="left")
         legend.append("■ ", style="color(237)")
         legend.append("■ ", style="color(22)")
         legend.append("■ ", style="color(28)")
