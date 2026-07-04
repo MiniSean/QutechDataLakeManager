@@ -50,7 +50,7 @@ class HeatmapGrid:
         elif count == 4:
             return "color(44)"  # Cyan
         else:
-            return "color(51)"  # Bright cyan
+            return "color(45)"  # Bright cyan (dimmed slightly)
 
     def render(self, available_counts: Dict[datetime.date, int], detected_counts: Dict[datetime.date, int]) -> Table:
         """Renders the heatmap grid as a Rich Table."""
@@ -108,7 +108,7 @@ class HeatmapGrid:
         legend.append("■ ", style="color(30)")
         legend.append("■ ", style="color(37)")
         legend.append("■ ", style="color(44)")
-        legend.append("■ ", style="color(51)")
+        legend.append("■ ", style="color(45)")
         legend.append("More | Synced Datasets: Less ")
         legend.append("■ ", style="color(237)")
         legend.append("■ ", style="color(22)")

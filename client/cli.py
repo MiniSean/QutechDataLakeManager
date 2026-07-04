@@ -154,7 +154,7 @@ class HeatmapWidget(Static):
         group = Group(
             grid_table,
             "\n",
-            Align.right(legend_text)
+            Align.left(legend_text)
         )
         self.update(group)
 
@@ -306,7 +306,8 @@ class QdlClientApp(App[None]):
         import urllib.error
         
         start_time = time.time()
-        timeout = 10.0
+        timeout = 60.0
+        timeout_sleep = 5.0
         daemon_url = "http://127.0.0.1:5500/transfers/data"
         
         while time.time() - start_time < timeout:
@@ -334,9 +335,9 @@ class QdlClientApp(App[None]):
             except Exception as e:
                 ui_log(f"[CLIENT] Daemon not reachable or error ({e}). Proceeding.")
                 break
-            time.sleep(1.0)
+            time.sleep(timeout_sleep)
         else:
-            ui_log("[CLIENT] Awaiting Daemon idle - force timeout in 10 s.")
+            ui_log(f"[CLIENT] Awaiting Daemon idle - force timeout in {timeout} s.")
             
         cleanup(log_func=ui_log)
         self.call_from_thread(self.exit)
@@ -412,6 +413,11 @@ class QdlClientApp(App[None]):
         
     @work(thread=True)
     def fetch_heatmap(self) -> None:
+        if self.manage_services:
+            global daemon_proc
+            if daemon_proc is None or daemon_proc.poll() is not None:
+                return  # Wait for daemon to be started and available
+
         scope_uid = self.qdl_config.scope
         
         # Determine 52 week bounds
