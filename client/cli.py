@@ -153,7 +153,6 @@ class HeatmapWidget(Static):
     def update_heatmap(self, grid_table: Any, legend_text: Any) -> None:
         group = Group(
             grid_table,
-            "\n",
             Align.left(legend_text)
         )
         self.update(group)
@@ -200,6 +199,7 @@ class QdlClientApp(App[None]):
     }
     #heatmap_container {
         height: auto;
+        margin-bottom: 1;
     }
     #status_container {
         height: auto;
@@ -275,6 +275,7 @@ class QdlClientApp(App[None]):
         self.manage_services = bool(settings.get("manage_services"))
         self.show_daemon_logs = bool(settings.get("show_daemon_logs"))
         self.show_sync_logs = bool(settings.get("show_sync_logs"))
+        self.heatmap_weeks = int(settings.get("heatmap_weeks"))
         self.plugin_enabled = True
         self.shutting_down = False
         
@@ -311,6 +312,7 @@ class QdlClientApp(App[None]):
         daemon_url = "http://127.0.0.1:5500/transfers/data"
         
         while time.time() - start_time < timeout:
+            time_remaining_before_timeout = timeout - (time.time() - start_time)
             try:
                 req = urllib.request.Request(daemon_url)
                 with urllib.request.urlopen(req, timeout=1.0) as response:
@@ -331,7 +333,7 @@ class QdlClientApp(App[None]):
                         ui_log("[CLIENT] Daemon is idle. Proceeding to exit.")
                         break
                     else:
-                        ui_log(f"[CLIENT] Daemon busy ({busy_count} tasks). Waiting...")
+                        ui_log(f"[CLIENT] Daemon busy ({busy_count} tasks). Waiting {time_remaining_before_timeout} s...")
             except Exception as e:
                 ui_log(f"[CLIENT] Daemon not reachable or error ({e}). Proceeding.")
                 break
@@ -392,7 +394,7 @@ class QdlClientApp(App[None]):
         self.status_widget.status_panel.status_scan_interval = self.scan_interval
         
         # Render empty heatmap immediately so it isn't delayed
-        heatmap_grid = HeatmapGrid(num_weeks=52)
+        heatmap_grid = HeatmapGrid(num_weeks=self.heatmap_weeks)
         grid_table = heatmap_grid.render(available_counts={}, detected_counts={})
         legend_text = heatmap_grid.render_legend()
         self.heatmap_widget.update_heatmap(grid_table, legend_text)
@@ -420,9 +422,9 @@ class QdlClientApp(App[None]):
 
         scope_uid = self.qdl_config.scope
         
-        # Determine 52 week bounds
+        # Determine heatmap week bounds
         today = datetime.datetime.now()
-        start_date = today - datetime.timedelta(weeks=52)
+        start_date = today - datetime.timedelta(weeks=self.heatmap_weeks)
         
         # Get available counts locally
         all_tuids = get_tuids_containing(
@@ -435,7 +437,7 @@ class QdlClientApp(App[None]):
         # Get detected counts via QDL SDK
         detected_counts = get_datasets_per_day(scope_uid, self.strategy)
         
-        heatmap_grid = HeatmapGrid(num_weeks=52)
+        heatmap_grid = HeatmapGrid(num_weeks=self.heatmap_weeks)
         grid_table = heatmap_grid.render(available_counts=available_counts, detected_counts=detected_counts)
         legend_text = heatmap_grid.render_legend()
         self.call_from_thread(self.heatmap_widget.update_heatmap, grid_table, legend_text)

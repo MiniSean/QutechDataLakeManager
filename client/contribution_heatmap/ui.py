@@ -52,53 +52,95 @@ class HeatmapGrid:
         else:
             return "color(45)"  # Bright cyan (dimmed slightly)
 
-    def render(self, available_counts: Dict[datetime.date, int], detected_counts: Dict[datetime.date, int]) -> Table:
-        """Renders the heatmap grid as a Rich Table."""
+    def render(self, available_counts: Dict[datetime.date, int], detected_counts: Dict[datetime.date, int]) -> Group:
+        """Renders the heatmap grid and headers."""
         today: datetime.date = datetime.date.today()
         # Find the most recent Sunday
         end_date: datetime.date = today + datetime.timedelta(days=(6 - today.weekday()))
         start_date: datetime.date = end_date - datetime.timedelta(weeks=self.num_weeks)
 
-        table: Table = Table(show_header=True, header_style="bold", show_edge=False, box=None, padding=(0, 0))
+        table: Table = Table(show_header=False, show_edge=False, box=None, padding=(0, 0))
         
         # Calculate column dates (the Sunday of each week)
         col_dates: List[datetime.date] = []
         for i in range(self.num_weeks):
             col_dates.append(start_date + datetime.timedelta(weeks=i))
+            table.add_column("")
             
-        # Add columns: month names on the first week of the month
-        for i, col_date in enumerate(col_dates):
-            header = ""
-            # If it's the first column or the month changed from the previous column
-            if i == 0 or col_date.month != col_dates[i-1].month:
-                header = calendar.month_abbr[col_date.month]
-            table.add_column(header, justify="center")
+        header_chars1 = [" "] * self.num_weeks
+        header_chars2 = [" "] * self.num_weeks
+        
+        def place_text(chars_list: List[str], idx: int, text: str, force: bool = False) -> None:
+            available = True
+            for j in range(len(text)):
+                if idx + j < self.num_weeks and chars_list[idx + j] != " ":
+                    available = False
+                    break
+            if available or force:
+                for j, char in enumerate(text):
+                    if idx + j < self.num_weeks:
+                        chars_list[idx + j] = char
 
-        # 7 rows for days (Monday = 0, Sunday = 6)
-        # However, standard Github heatmap is Sun-Sat. Let's do Mon-Sun.
-        for day_of_week in range(7):
+        # Place Januaries first (highest priority)
+        for i, col_date in enumerate(col_dates):
+            if (i == 0 or col_date.month != col_dates[i-1].month) and col_date.month == 1:
+                place_text(header_chars2, i, calendar.month_abbr[1], force=True)
+                place_text(header_chars1, i, str(col_date.year), force=True)
+
+        # Place the first item if it's not January, and only if it fits
+        if col_dates and col_dates[0].month != 1:
+            place_text(header_chars2, 0, calendar.month_abbr[col_dates[0].month], force=False)
+            place_text(header_chars1, 0, str(col_dates[0].year), force=False)
+
+        # Place other months if they fit
+        for i, col_date in enumerate(col_dates):
+            if i > 0 and col_date.month != col_dates[i-1].month and col_date.month != 1:
+                place_text(header_chars2, i, calendar.month_abbr[col_date.month], force=False)
+
+        # 4 rows for 7 days using the Half-Block technique to remove vertical spaces
+        for day_pair in range(0, 7, 2):
             row_cells: List[Text] = []
             for col_date in col_dates:
-                # The actual date for this cell
-                cell_date: datetime.date = col_date - datetime.timedelta(days=(6 - day_of_week))
+                # Top half (day_pair)
+                day1 = day_pair
+                cell_date1 = col_date - datetime.timedelta(days=(6 - day1))
+                avail1 = available_counts.get(cell_date1, 0)
+                det1 = detected_counts.get(cell_date1, 0)
                 
-                avail_count: int = available_counts.get(cell_date, 0)
-                det_count: int = detected_counts.get(cell_date, 0)
-                # Ensure future dates remain empty/dark
-                if cell_date > today:
-                    color = "color(237)"
-                elif det_count > 0:
-                    color = self._get_detected_color(det_count)
-                elif avail_count > 0:
-                    color = self._get_available_color(avail_count)
+                if cell_date1 > today:
+                    color1 = "color(237)"
+                elif det1 > 0:
+                    color1 = self._get_detected_color(det1)
+                elif avail1 > 0:
+                    color1 = self._get_available_color(avail1)
                 else:
-                    color = "color(237)"
-                
-                row_cells.append(Text("■", style=color))
+                    color1 = "color(237)"
+
+                # Bottom half (day_pair + 1)
+                day2 = day_pair + 1
+                if day2 < 7:
+                    cell_date2 = col_date - datetime.timedelta(days=(6 - day2))
+                    avail2 = available_counts.get(cell_date2, 0)
+                    det2 = detected_counts.get(cell_date2, 0)
+                    
+                    if cell_date2 > today:
+                        color2 = "color(237)"
+                    elif det2 > 0:
+                        color2 = self._get_detected_color(det2)
+                    elif avail2 > 0:
+                        color2 = self._get_available_color(avail2)
+                    else:
+                        color2 = "color(237)"
+                        
+                    # ▀ is upper half block. Foreground is top half, Background is bottom half.
+                    row_cells.append(Text("▀", style=f"{color1} on {color2}"))
+                else:
+                    row_cells.append(Text("▀", style=color1))
             
             table.add_row(*row_cells)
 
-        return table
+        header_text = Text("".join(header_chars1) + "\n" + "".join(header_chars2))
+        return Group(header_text, table)
         
     def render_legend(self) -> Text:
         """Renders the right-aligned legend for dataset counts."""
