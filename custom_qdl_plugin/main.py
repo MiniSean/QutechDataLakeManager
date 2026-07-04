@@ -7,7 +7,6 @@ import zmq
 import zmq.asyncio
 import traceback
 from pathlib import Path
-
 from qdlcomms.messages.plugins import (
     PluginInitializeRequest,
     PluginInitializeResponse,
@@ -26,9 +25,12 @@ from qdlcomms.messages.plugins import (
     PluginState,
     PluginConnectionState,
 )
-
 import scanner
 import state
+from collections import defaultdict
+
+
+MAX_DATASETS_PER_BATCH = 30
 
 class PluginContext:
     def __init__(self):
@@ -40,6 +42,7 @@ class PluginContext:
         self.scope_uid = None
         self.session_id = uuid.uuid4()
         self.running = True
+        self.pending_acks = set()
 
 import logging
 
@@ -80,42 +83,64 @@ async def scan_loop(ctx: PluginContext, pair_socket: zmq.asyncio.Socket):
                 valid_folders = await asyncio.to_thread(scanner.find_valid_dataset_folders, ctx.data_location)
                 logger.debug(f"Found {len(valid_folders)} valid dataset folders to process.")
                 
-                for i, dataset_dir in enumerate(valid_folders):
+                # Group folders by date
+                date_groups = defaultdict(list)
+                for folder in valid_folders:
+                    date_groups[folder.parent.name].append(folder)
+                
+                processed_count = 0
+                total_folders = len(valid_folders)
+                
+                for date, folders_in_date in date_groups.items():
                     if not ctx.running:
                         break
-                        
-                    logger.debug(f"Processing dataset {i+1}/{len(valid_folders)} for date: {dataset_dir.parent.name}, dataset: {dataset_dir.name}")
-                    ds = await asyncio.to_thread(scanner.process_single_dataset, dataset_dir, ctx.scope_uid)
                     
-                    if ds:
-                        # Extract internal metadata
-                        dataset_dir_from_ds = ds.pop("dataset_dir")
-                        dataset_files = ds["dataset_files"]
+                    # Chunk by max_datasets_per_batch
+                    for i in range(0, len(folders_in_date), MAX_DATASETS_PER_BATCH):
+                        if not ctx.running:
+                            break
+                        batch = folders_in_date[i:i+MAX_DATASETS_PER_BATCH]
+                        ctx.pending_acks.clear()
                         
-                        # Pop out item_path to prevent it being sent in JSON
-                        file_paths = []
-                        clean_files = []
-                        for f in dataset_files:
-                            item_path = f.pop("item_path")
-                            file_paths.append((f["qdl_file_dir"], f["file_checksum"], item_path))
-                            clean_files.append(f)
+                        for dataset_dir in batch:
+                            processed_count += 1
+                            logger.debug(f"Processing dataset {processed_count}/{total_folders} for date: {date}, dataset: {dataset_dir.name}")
+                            ds = await asyncio.to_thread(scanner.process_single_dataset, dataset_dir, ctx.scope_uid)
+                            
+                            if ds:
+                                # Extract internal metadata
+                                dataset_dir_from_ds = ds.pop("dataset_dir")
+                                dataset_files = ds["dataset_files"]
+                                
+                                # Pop out item_path to prevent it being sent in JSON
+                                file_paths = []
+                                clean_files = []
+                                for f in dataset_files:
+                                    item_path = f.pop("item_path")
+                                    file_paths.append((f["qdl_file_dir"], f["file_checksum"], item_path))
+                                    clean_files.append(f)
+                                
+                                ds["dataset_files"] = clean_files
+                                
+                                # Send DataFileReadyRequest
+                                payload = DataFileReadyRequestPayload(**ds)
+                                req_msg = DataFileReadyRequest(
+                                    session_id=ctx.session_id,
+                                    msg_id=uuid.uuid4(),
+                                    timestamp=time.time(),
+                                    type="data_file_ready",
+                                    payload=payload
+                                )
+                                logger.debug(f"Sending DataFileReadyRequest for {dataset_dir_from_ds}")
+                                await pair_socket.send_json(req_msg.model_dump(mode='json'))
+                                ctx.pending_acks.add(str(req_msg.msg_id))
+                                
+                                for rel_path, checksum, item_path in file_paths:
+                                    state.update_state(dataset_dir_from_ds, rel_path, checksum)
                         
-                        ds["dataset_files"] = clean_files
-                        
-                        # Send DataFileReadyRequest
-                        payload = DataFileReadyRequestPayload(**ds)
-                        req_msg = DataFileReadyRequest(
-                            session_id=ctx.session_id,
-                            msg_id=uuid.uuid4(),
-                            timestamp=time.time(),
-                            type="data_file_ready",
-                            payload=payload
-                        )
-                        logger.debug(f"Sending DataFileReadyRequest for {dataset_dir_from_ds}")
-                        await pair_socket.send_json(req_msg.model_dump(mode='json'))
-                        
-                        for rel_path, checksum, item_path in file_paths:
-                            state.update_state(dataset_dir_from_ds, rel_path, checksum)
+                        # Wait for backpressure
+                        while len(ctx.pending_acks) > 0 and ctx.running:
+                            await asyncio.sleep(0.1)
                             
                 logger.debug("Scan pass completed.")
                         
@@ -174,6 +199,12 @@ async def receive_loop(ctx: PluginContext, pair_socket: zmq.asyncio.Socket):
                 # We update state optimistically in scan_loop, so we just log this.
                 logger.debug("Received data_file_ready_response")
                 pass
+                
+            elif msg_type == "data_ready_ack":
+                msg_id = str(msg.get("msg_id"))
+                if msg_id in ctx.pending_acks:
+                    ctx.pending_acks.remove(msg_id)
+                logger.debug(f"Received data_ready_ack for {msg_id}")
                 
         except Exception as e:
             logger.error(f"Error in receive loop: {e}", exc_info=True)

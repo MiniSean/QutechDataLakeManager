@@ -1,5 +1,6 @@
 {
-  "sync_interval": 20,
+  "sync_interval": 60,
+  "scan_interval": 60,
   "manage_services": true,
   "show_daemon_logs": false,
   "show_sync_logs": false

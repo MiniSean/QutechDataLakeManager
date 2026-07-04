@@ -30,18 +30,19 @@ from rich.console import Group
 from rich.align import Align
 
 
-def get_plugin_version() -> str:
+def get_plugin_info() -> tuple[str, str]:
     if hasattr(sys, "_MEIPASS"):
         v_path = Path(sys._MEIPASS) / "version.json"
     else:
         v_path = Path(__file__).parent.parent / "version.json"
     if v_path.exists():
         with open(v_path, "r") as f:
-            return json.load(f).get("custom_qdl_plugin_version", "0.1.0")
-    return "0.1.0"
+            data = json.load(f)
+            return data.get("plugin_name"), data.get("qdl_plugin_version")
+    raise Exception("Plugin information not defined")
 
-PLUGIN_VERSION: str = get_plugin_version()
-PLUGIN_TARBALL_NAME: str = f"qdl-custom-plugin-windows-{PLUGIN_VERSION}.tar.gz"
+PLUGIN_NAME, PLUGIN_VERSION = get_plugin_info()
+PLUGIN_TARBALL_NAME: str = f"qdl-{PLUGIN_NAME}-plugin-windows-{PLUGIN_VERSION}.tar.gz"
 
 def get_plugin_settings() -> Dict[str, Any]:
     if hasattr(sys, "_MEIPASS"):
@@ -52,7 +53,7 @@ def get_plugin_settings() -> Dict[str, Any]:
         with open(settings_path, "r") as f:
             return json.load(f)
 
-    return {"sync_interval": 20, "manage_services": True, "show_daemon_logs": True, "show_sync_logs": True}
+    raise Exception("Plugin settings not defined")
 
 daemon_proc: Optional[subprocess.Popen[Any]] = None
 sync_proc: Optional[subprocess.Popen[Any]] = None
@@ -267,9 +268,10 @@ class QdlClientApp(App[None]):
         
         settings = get_plugin_settings()
         self.sync_interval = float(settings.get("sync_interval"))
-        self.manage_services = bool(settings.get("manage_services", True))
-        self.show_daemon_logs = bool(settings.get("show_daemon_logs", True))
-        self.show_sync_logs = bool(settings.get("show_sync_logs", True))
+        self.scan_interval = float(settings.get("scan_interval"))
+        self.manage_services = bool(settings.get("manage_services"))
+        self.show_daemon_logs = bool(settings.get("show_daemon_logs"))
+        self.show_sync_logs = bool(settings.get("show_sync_logs"))
         
     @work(thread=True)
     def action_quit(self) -> None:
@@ -312,7 +314,7 @@ class QdlClientApp(App[None]):
         
         scope_init = self.qdl_config.scope
         self.status_widget.status_panel.update_config_info(scope_init, self.qdl_config.setup, self.qdl_config.device)
-        self.status_widget.status_panel.sync_interval = self.sync_interval
+        self.status_widget.status_panel.status_scan_interval = self.scan_interval
         
         # Render empty heatmap immediately so it isn't delayed
         heatmap_grid = HeatmapGrid(num_weeks=52)
@@ -321,7 +323,7 @@ class QdlClientApp(App[None]):
         self.heatmap_widget.update_heatmap(grid_table, legend_text)
         
         self.set_interval(0.1, self.tick_status)
-        self.set_interval(self.sync_interval, self.fetch_heatmap)
+        self.set_interval(self.scan_interval, self.fetch_heatmap)
         self.fetch_heatmap()
         
     def tick_status(self) -> None:
@@ -451,8 +453,8 @@ class QdlClientApp(App[None]):
         qdl_exe = get_executable("qdl", self.qdl_config)
         data_dir = self.qdl_config.data_dir
         
-        self.run_and_log([qdl_exe, "sync", "create", "--scan_interval", str(int(self.sync_interval)), "custom", scope_uid, data_dir, PLUGIN_VERSION])
-        self.run_and_log([qdl_exe, "sync", "update", "--sync_interval", "1"])
+        self.run_and_log([qdl_exe, "sync", "create", "--scan_interval", str(float(self.scan_interval)), PLUGIN_NAME, scope_uid, data_dir, PLUGIN_VERSION])
+        self.run_and_log([qdl_exe, "sync", "update", "--sync_interval", str(float(self.sync_interval))])
         self.run_and_log([qdl_exe, "sync", "plugin", "start"])
         
         self.call_from_thread(self.write_log, "Services running! Press Ctrl+C (or Ctrl+Q) to exit.")

@@ -95,3 +95,21 @@ $ python custom_qdl_plugin/build.py
 
 # --- How to build the client program
 $ python client/build_client.py
+
+
+# ---
+
+To answer your question: No, it's not creating subprocesses. It's creating thousands of short-lived HTTP connections that get stuck in the TIME_WAIT state.
+
+Should we go back to Batched Processing?
+You don't necessarily have to go back to batched processing, but you do need to introduce some form of pacing to avoid overwhelming the network stack. Here are the two best approaches:
+
+Option 1: Add flow control to your "one-by-one" tactic (Recommended) You can keep the one-by-one processing, but the plugin must respect backpressure. Instead of sending all 7195 requests in a tight loop, the plugin should send one dataset, wait to receive the data_file_ready_response from the sync-service, and only then send the next dataset. This will naturally pace the sync-service so it doesn't exceed the OS's ability to recycle ports.
+
+You would need to modify main.py in your plugin to track an ongoing request and wait for the ack in receive_loop before scan_loop proceeds.
+
+Option 2: Go back to batched processing If batched processing means sending a single payload with multiple datasets (and the sync-service/daemon process them in a single bulk API call), this would drastically reduce the number of HTTP connections opened, solving the port exhaustion.
+
+Option 3: Connection Pooling (If you control the sync-service) If you are the developer of the sync-service and the qdl library, the best network-level fix is to ensure the QDL python library uses a connection pool (e.g., a shared httpx.AsyncClient or requests.Session). This reuses a single TCP connection for all requests to port 5500, completely eliminating TIME_WAIT buildup.
+
+Let me know if you'd like me to help implement the flow control in the plugin's main.py or take a different route!

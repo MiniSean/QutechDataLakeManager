@@ -75,6 +75,8 @@ from qdl import Dataset
 
 scope = "dicarlo-testing"
 datasets = Dataset.list(scope_uid=scope, collection_name=[])
-for _dataset in datasets:
-    print(_dataset.to_dict())
-    # print(_dataset.__dict__)
+print(datasets[0])
+print(len(datasets))
+# for _dataset in datasets:
+#     print(_dataset.to_dict())
+#     # print(_dataset.__dict__)
