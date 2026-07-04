@@ -22,7 +22,9 @@ from textual.containers import Container, Horizontal, Vertical, Grid
 from textual import work
 
 from client.contribution_heatmap.ui import HeatmapGrid
-from client.contribution_heatmap.data_fetcher import get_datasets_per_day
+from client.contribution_heatmap.data_fetcher import get_datasets_per_day, get_tuids_containing, parse_tuids_to_heatmap_data
+import datetime
+from pathlib import Path
 from client.contribution_heatmap.strategy_tuid_extraction import QdlDatasetNameDateExtraction
 from client.status_panel.ui import StatusPanel, SyncTimerState
 from client.config import ClientConfig
@@ -258,6 +260,7 @@ class QdlClientApp(App[None]):
         ("ctrl+q", "quit", "Quit"),
         ("d", "toggle_daemon", "Toggle Daemon Logs"),
         ("s", "toggle_sync", "Toggle Sync Logs"),
+        ("p", "toggle_plugin", "Toggle Plugin"),
         ("end", "scroll_end", "Snap to Bottom"),
     ]
 
@@ -272,9 +275,15 @@ class QdlClientApp(App[None]):
         self.manage_services = bool(settings.get("manage_services"))
         self.show_daemon_logs = bool(settings.get("show_daemon_logs"))
         self.show_sync_logs = bool(settings.get("show_sync_logs"))
+        self.plugin_enabled = True
+        self.shutting_down = False
         
     @work(thread=True)
     def action_quit(self) -> None:
+        if getattr(self, "shutting_down", False):
+            return
+        self.shutting_down = True
+
         def ui_log(msg: str) -> None:
             try:
                 self.call_from_thread(self.write_log, msg)
@@ -282,6 +291,53 @@ class QdlClientApp(App[None]):
                 pass
                 
         ui_log("[CLIENT] action_quit() triggered")
+        
+        if getattr(self, "plugin_enabled", False):
+            ui_log("[CLIENT] Stopping plugin and waiting for daemon to idle...")
+            self.plugin_enabled = False
+            qdl_exe = get_executable("qdl", self.qdl_config)
+            try:
+                subprocess.run([qdl_exe, "sync", "plugin", "stop"], check=False)
+            except Exception as e:
+                ui_log(f"[CLIENT] Error stopping plugin: {e}")
+                
+        # Start await idle loop
+        import urllib.request
+        import urllib.error
+        
+        start_time = time.time()
+        timeout = 10.0
+        daemon_url = "http://127.0.0.1:5500/transfers/data"
+        
+        while time.time() - start_time < timeout:
+            try:
+                req = urllib.request.Request(daemon_url)
+                with urllib.request.urlopen(req, timeout=1.0) as response:
+                    data = json.loads(response.read().decode())
+                    metrics = data.get("queue_metrics", [])
+                    busy_count = 0
+                    for m in metrics:
+                        desc = m.get("description", "")
+                        if desc in [
+                            "Number of queued uploads", 
+                            "Number of uploads in progress", 
+                            "Number of queued downloads", 
+                            "Number of downloads in progress"
+                        ]:
+                            busy_count += m.get("count", 0)
+                    
+                    if busy_count == 0:
+                        ui_log("[CLIENT] Daemon is idle. Proceeding to exit.")
+                        break
+                    else:
+                        ui_log(f"[CLIENT] Daemon busy ({busy_count} tasks). Waiting...")
+            except Exception as e:
+                ui_log(f"[CLIENT] Daemon not reachable or error ({e}). Proceeding.")
+                break
+            time.sleep(1.0)
+        else:
+            ui_log("[CLIENT] Awaiting Daemon idle - force timeout in 10 s.")
+            
         cleanup(log_func=ui_log)
         self.call_from_thread(self.exit)
         
@@ -296,6 +352,24 @@ class QdlClientApp(App[None]):
     def action_toggle_sync(self) -> None:
         self.show_sync_logs = not self.show_sync_logs
         self.write_log(f"[bold blue]{'Showing' if self.show_sync_logs else 'Hiding'} Sync Logs[/bold blue]")
+        
+    @work(thread=True)
+    def action_toggle_plugin(self) -> None:
+        if getattr(self, "shutting_down", False):
+            return
+            
+        qdl_exe = get_executable("qdl", self.qdl_config)
+        try:
+            if getattr(self, "plugin_enabled", False):
+                self.call_from_thread(self.write_log, "[bold blue]Stopping Plugin...[/bold blue]")
+                subprocess.run([qdl_exe, "sync", "plugin", "stop"], check=False)
+                self.plugin_enabled = False
+            else:
+                self.call_from_thread(self.write_log, "[bold blue]Starting Plugin...[/bold blue]")
+                subprocess.run([qdl_exe, "sync", "plugin", "start"], check=False)
+                self.plugin_enabled = True
+        except Exception as e:
+            self.call_from_thread(self.write_log, f"[bold red]Failed to toggle plugin: {e}[/bold red]")
         
     def compose(self) -> ComposeResult:
         with Container(id="top_panel"):
@@ -318,7 +392,7 @@ class QdlClientApp(App[None]):
         
         # Render empty heatmap immediately so it isn't delayed
         heatmap_grid = HeatmapGrid(num_weeks=52)
-        grid_table = heatmap_grid.render({})
+        grid_table = heatmap_grid.render(available_counts={}, detected_counts={})
         legend_text = heatmap_grid.render_legend()
         self.heatmap_widget.update_heatmap(grid_table, legend_text)
         
@@ -339,9 +413,24 @@ class QdlClientApp(App[None]):
     @work(thread=True)
     def fetch_heatmap(self) -> None:
         scope_uid = self.qdl_config.scope
-        counts = get_datasets_per_day(scope_uid, self.strategy)
+        
+        # Determine 52 week bounds
+        today = datetime.datetime.now()
+        start_date = today - datetime.timedelta(weeks=52)
+        
+        # Get available counts locally
+        all_tuids = get_tuids_containing(
+            Path(self.qdl_config.data_dir),
+            t_start=start_date,
+            t_stop=today
+        )
+        available_counts = parse_tuids_to_heatmap_data(all_tuids)
+        
+        # Get detected counts via QDL SDK
+        detected_counts = get_datasets_per_day(scope_uid, self.strategy)
+        
         heatmap_grid = HeatmapGrid(num_weeks=52)
-        grid_table = heatmap_grid.render(counts)
+        grid_table = heatmap_grid.render(available_counts=available_counts, detected_counts=detected_counts)
         legend_text = heatmap_grid.render_legend()
         self.call_from_thread(self.heatmap_widget.update_heatmap, grid_table, legend_text)
 

@@ -22,7 +22,7 @@ class HeatmapGrid:
     # endregion
 
     # region Class Methods
-    def _get_color(self, count: int) -> str:
+    def _get_detected_color(self, count: int) -> str:
         """Returns a rich color string based on the dataset count linearly interpolated from 0 to 5."""
         if count == 0:
             return "color(237)" # Dark grey
@@ -37,7 +37,22 @@ class HeatmapGrid:
         else:
             return "color(46)"  # Bright green
 
-    def render(self, counts: Dict[datetime.date, int]) -> Table:
+    def _get_available_color(self, count: int) -> str:
+        """Returns a rich color string based on the available dataset count."""
+        if count == 0:
+            return "color(237)" # Dark grey
+        elif count == 1:
+            return "color(23)"  # Dark cyan
+        elif count == 2:
+            return "color(30)"  # Medium dark cyan
+        elif count == 3:
+            return "color(37)"  # Medium cyan
+        elif count == 4:
+            return "color(44)"  # Cyan
+        else:
+            return "color(51)"  # Bright cyan
+
+    def render(self, available_counts: Dict[datetime.date, int], detected_counts: Dict[datetime.date, int]) -> Table:
         """Renders the heatmap grid as a Rich Table."""
         today: datetime.date = datetime.date.today()
         # Find the most recent Sunday
@@ -67,12 +82,17 @@ class HeatmapGrid:
                 # The actual date for this cell
                 cell_date: datetime.date = col_date - datetime.timedelta(days=(6 - day_of_week))
                 
-                count: int = counts.get(cell_date, 0)
+                avail_count: int = available_counts.get(cell_date, 0)
+                det_count: int = detected_counts.get(cell_date, 0)
                 # Ensure future dates remain empty/dark
                 if cell_date > today:
                     color = "color(237)"
+                elif det_count > 0:
+                    color = self._get_detected_color(det_count)
+                elif avail_count > 0:
+                    color = self._get_available_color(avail_count)
                 else:
-                    color = self._get_color(count)
+                    color = "color(237)"
                 
                 row_cells.append(Text("■", style=color))
             
@@ -82,7 +102,14 @@ class HeatmapGrid:
         
     def render_legend(self) -> Text:
         """Renders the right-aligned legend for dataset counts."""
-        legend: Text = Text("Dataset count: Less ", justify="left")
+        legend: Text = Text("Detected Datasets: Less ", justify="left")
+        legend.append("■ ", style="color(237)")
+        legend.append("■ ", style="color(23)")
+        legend.append("■ ", style="color(30)")
+        legend.append("■ ", style="color(37)")
+        legend.append("■ ", style="color(44)")
+        legend.append("■ ", style="color(51)")
+        legend.append("More | Synced Datasets: Less ")
         legend.append("■ ", style="color(237)")
         legend.append("■ ", style="color(22)")
         legend.append("■ ", style="color(28)")
