@@ -17,7 +17,7 @@ class StatusPanel:
         self.daemon_status: str = "Pending"
         self.sync_status: str = "Pending"
         self.datasets_synced: str = "100%"
-        self.time_since_sync: float = 0.0
+        self.time_since_plugin_heartbeat: float = 0.0
         self.status_scan_interval: float = 60.0
         self.spinner_chars: list[str] = ['|', '/', '-', '\\']
         self.spinner_idx: int = 0
@@ -48,7 +48,7 @@ class StatusPanel:
 
     def update_sync_time(self, time_since: float, interval: float = 5.0) -> None:
         """Update time since last sync."""
-        self.time_since_sync = time_since
+        self.time_since_plugin_heartbeat = time_since
         self.status_scan_interval = interval
 
     def tick_spinner(self) -> None:
@@ -80,7 +80,7 @@ class StatusPanel:
         elif self.sync_timer_state == SyncTimerState.AWAITING_SYNC:
             text.append_text(Text.from_markup(f"\\[{spinner}] Awaiting sync action...\n"))
         elif self.sync_timer_state == SyncTimerState.ACTIVE:
-            text.append_text(Text.from_markup(f"\\[{spinner}] Time since last sync {int(self.time_since_sync)}/{int(self.status_scan_interval)} \\[s]\n"))
+            text.append_text(Text.from_markup(f"\\[{spinner}] Time since last plugin heartbeat {int(self.time_since_plugin_heartbeat)} \\[s]\n"))
 
         if self.sync_timer_state != SyncTimerState.AWAITING_INPUT:
             text.append_text(Text.from_markup(f"\\[scope] {self.scope_name} \\[setup] {self.setup_name} \\[device] {self.device_name}"))

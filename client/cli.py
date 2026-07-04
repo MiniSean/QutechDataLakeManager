@@ -333,7 +333,7 @@ class QdlClientApp(App[None]):
         if sync_proc:
             self.status_widget.status_panel.update_state(sync="Pass" if sync_proc.poll() is None else "Failed")
             
-        self.status_widget.status_panel.time_since_sync += 0.1
+        self.status_widget.status_panel.time_since_plugin_heartbeat += 0.1
         self.status_widget.update_render()
         
     @work(thread=True)
