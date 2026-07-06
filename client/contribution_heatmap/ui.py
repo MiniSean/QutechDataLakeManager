@@ -17,8 +17,9 @@ from client.status_panel.ui import StatusPanel
 
 class HeatmapGrid:
     # region Class Constructor
-    def __init__(self, num_weeks: int = 52) -> None:
+    def __init__(self, num_weeks: int = 52, single_color_mode: bool = False) -> None:
         self.num_weeks: int = num_weeks
+        self.single_color_mode: bool = single_color_mode
     # endregion
 
     # region Class Methods
@@ -26,7 +27,10 @@ class HeatmapGrid:
         """Returns a rich color string based on the dataset count linearly interpolated from 0 to 5."""
         if count == 0:
             return "color(237)" # Dark grey
-        elif count == 1:
+        if self.single_color_mode:
+            return "color(46)"  # Bright green
+            
+        if count == 1:
             return "color(22)"  # Very dark green
         elif count == 2:
             return "color(28)"  # Dark green
@@ -41,7 +45,10 @@ class HeatmapGrid:
         """Returns a rich color string based on the available dataset count."""
         if count == 0:
             return "color(237)" # Dark grey
-        elif count == 1:
+        if self.single_color_mode:
+            return "color(51)"  # Bright cyan
+            
+        if count == 1:
             return "color(23)"  # Dark cyan
         elif count == 2:
             return "color(30)"  # Medium dark cyan
@@ -144,6 +151,15 @@ class HeatmapGrid:
         
     def render_legend(self) -> Text:
         """Renders the right-aligned legend for dataset counts."""
+        if self.single_color_mode:
+            legend: Text = Text("Detected Datasets: ", justify="left")
+            legend.append("■ ", style="color(237)")
+            legend.append("■ ", style="color(51)")
+            legend.append(" | Synced Datasets: ")
+            legend.append("■ ", style="color(237)")
+            legend.append("■ ", style="color(46)")
+            return legend
+            
         legend: Text = Text("Detected Datasets: Less ", justify="left")
         legend.append("■ ", style="color(237)")
         legend.append("■ ", style="color(23)")

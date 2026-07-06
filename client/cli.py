@@ -278,6 +278,7 @@ class QdlClientApp(App[None]):
         self.heatmap_weeks = int(settings.get("heatmap_weeks"))
         self.plugin_enabled = True
         self.shutting_down = False
+        self.tuid_states: Dict[str, Dict[str, Any]] = {}
         
     @work(thread=True)
     def action_quit(self) -> None:
@@ -394,14 +395,16 @@ class QdlClientApp(App[None]):
         self.status_widget.status_panel.status_scan_interval = self.scan_interval
         
         # Render empty heatmap immediately so it isn't delayed
-        heatmap_grid = HeatmapGrid(num_weeks=self.heatmap_weeks)
+        heatmap_grid = HeatmapGrid(num_weeks=self.heatmap_weeks, single_color_mode=True)
         grid_table = heatmap_grid.render(available_counts={}, detected_counts={})
         legend_text = heatmap_grid.render_legend()
         self.heatmap_widget.update_heatmap(grid_table, legend_text)
         
         self.set_interval(0.1, self.tick_status)
         self.set_interval(self.scan_interval, self.fetch_heatmap)
+        self.set_interval(self.scan_interval, self.check_pending_tuids)
         self.fetch_heatmap()
+        self.tuid_tracker_thread()
         
     def tick_status(self) -> None:
         global daemon_proc, sync_proc
@@ -437,7 +440,7 @@ class QdlClientApp(App[None]):
         # Get detected counts via QDL SDK
         detected_counts = get_datasets_per_day(scope_uid, self.strategy)
         
-        heatmap_grid = HeatmapGrid(num_weeks=self.heatmap_weeks)
+        heatmap_grid = HeatmapGrid(num_weeks=self.heatmap_weeks, single_color_mode=True)
         grid_table = heatmap_grid.render(available_counts=available_counts, detected_counts=detected_counts)
         legend_text = heatmap_grid.render_legend()
         self.call_from_thread(self.heatmap_widget.update_heatmap, grid_table, legend_text)
@@ -581,6 +584,45 @@ class QdlClientApp(App[None]):
                         break
         except Exception:
             pass
+
+    @work(thread=True)
+    def check_pending_tuids(self) -> None:
+        if not getattr(self, "plugin_enabled", False):
+            return
+        try:
+            scope_uid = self.qdl_config.scope
+            datasets = qdl.Dataset.list(scope_uid=scope_uid)
+            processed_tuids = {d.name for d in datasets}
+            now = time.time()
+            for tuid, info in list(self.tuid_states.items()):
+                if tuid in processed_tuids:
+                    if info["state"] != "Processed":
+                        info["state"] = "Processed"
+                        self.call_from_thread(self.write_log, f"[bold green][TRACKER] TUID {tuid} Processed by Daemon![/bold green]")
+                else:
+                    if info["state"] == "Submitted" and (now - info["time"] > 120):
+                        self.call_from_thread(self.write_log, f"[bold red][WARNING] TUID {tuid} is pending/stuck and has not been processed yet![/bold red]")
+                        info["state"] = "Stuck"
+        except Exception:
+            pass
+
+    @work(thread=True)
+    def tuid_tracker_thread(self) -> None:
+        import zmq
+        ctx = zmq.Context.instance()
+        socket = ctx.socket(zmq.SUB)
+        socket.bind("tcp://127.0.0.1:4206")
+        socket.setsockopt_string(zmq.SUBSCRIBE, "")
+        while not getattr(self, "shutting_down", False):
+            try:
+                if socket.poll(1000):
+                    data = socket.recv_json()
+                    if data.get("type") == "tuid_event":
+                        tuid = data.get("tuid")
+                        self.tuid_states[tuid] = {"state": "Submitted", "time": time.time()}
+                        self.call_from_thread(self.write_log, f"[bold blue][TRACKER] Plugin Found & Submitted TUID: {tuid}[/bold blue]")
+            except Exception:
+                pass
 
 @click.command()
 def main() -> None:
