@@ -41,6 +41,55 @@ def valid_qmi_date_directory(date_dir: str) -> bool:
     return True
 
 
+def is_valid_tuid(tuid: str) -> bool:
+    """Test if tuid is valid. Formatted as YYYYmmDD-HHMMSS-sss-******."""
+    if len(tuid) < 26:
+        return False
+    if tuid[8] != "-" or tuid[15] != "-" or tuid[19] != "-":
+        return False
+    uid = tuid[20:26]
+    if not uid.isalnum():
+        return False
+    try:
+        datetime.strptime(tuid[:19], "%Y%m%d-%H%M%S-%f")
+    except ValueError:
+        return False
+    return True
+
+
+def find_valid_dataset_folders(data_location: Path) -> List[Path]:
+    """
+    Scans the data location and returns a list of valid dataset folders.
+    A valid dataset folder is a directory under a YYYYMMDD date folder
+    that contains a 'dataset.hdf5' file, and whose name passes TUID validation.
+    """
+    valid_folders: List[Path] = []
+    if not data_location.exists() or not data_location.is_dir():
+        return valid_folders
+
+    try:
+        for date_dir in data_location.iterdir():
+            if not date_dir.is_dir() or not valid_qmi_date_directory(date_dir.name):
+                continue
+            
+            for dataset_dir in date_dir.iterdir():
+                if not dataset_dir.is_dir():
+                    continue
+                
+                dataset_name = dataset_dir.name
+                if not is_valid_tuid(dataset_name[:26]):
+                    continue
+                    
+                if not (dataset_dir / "dataset.hdf5").exists():
+                    continue
+                
+                valid_folders.append(dataset_dir)
+    except Exception as e:
+        logger.error(f"QMI-plugin: Error scanning datasets: {e}", event_key=EventKey.PLUGIN_SCAN_DATASETS)
+
+    return valid_folders
+
+
 async def check_md5sum(qmi_file_path: Path, qdl_file: Path) -> Tuple[bool, str | None]:
     """Check if the md5sum of the given dataset file has changed by comparing it against the content of the qdl_file.
 

@@ -17,7 +17,7 @@ import click
 import qdl
 
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Static, Input, Button, RichLog, Label, ContentSwitcher
+from textual.widgets import Header, Footer, Static, Input, Button, RichLog, Label, ContentSwitcher, Checkbox
 from textual.containers import Container, Horizontal, Vertical, Grid
 from textual import work
 
@@ -165,9 +165,10 @@ class StatusWidget(Static):
         self.update(self.status_panel.render())
 
 class SetupForm(Container):
-    def __init__(self, config: ClientConfig, **kwargs: Any) -> None:
+    def __init__(self, config: ClientConfig, avoid_duplicates: bool, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.config = config
+        self.avoid_duplicates = avoid_duplicates
 
     def compose(self) -> ComposeResult:
         default_dir = self.config.data_dir
@@ -185,6 +186,9 @@ class SetupForm(Container):
             with Vertical(classes="flex_col"):
                 yield Label("Device ID:")
                 yield Input(value=self.config.device, id="input_device")
+            with Vertical(classes="flex_col"):
+                yield Label("Lazy Sync:")
+                yield Checkbox(value=self.avoid_duplicates, id="chk_avoid_duplicates")
         yield Button("Continue", id="btn_start", variant="primary")
 
 class QdlClientApp(App[None]):
@@ -218,7 +222,7 @@ class QdlClientApp(App[None]):
     SetupForm Label {
         margin-top: 0;
     }
-    SetupForm Input, SetupForm Button {
+    SetupForm Input, SetupForm Button, SetupForm Checkbox {
         height: 1;
         min-height: 1;
         border: none;
@@ -381,7 +385,7 @@ class QdlClientApp(App[None]):
             yield StatusWidget(id="status_container")
         
         with ContentSwitcher(initial="setup_form", id="bottom_panel"):
-            yield SetupForm(self.qdl_config, id="setup_form")
+            yield SetupForm(self.qdl_config, self.qdl_config.avoid_duplicates, id="setup_form")
             yield RichLog(id="rich_log", markup=True, wrap=True)
         yield Footer()
 
@@ -463,6 +467,7 @@ class QdlClientApp(App[None]):
         self.qdl_config.scope = self.query_one("#input_scope", Input).value
         self.qdl_config.setup = self.query_one("#input_setup", Input).value
         self.qdl_config.device = self.query_one("#input_device", Input).value
+        self.qdl_config.avoid_duplicates = self.query_one("#chk_avoid_duplicates", Checkbox).value
         self.qdl_config.save()
         
         scope_uid = self.qdl_config.scope
@@ -522,6 +527,8 @@ class QdlClientApp(App[None]):
             if sys.platform == 'win32':
                 # 0x08000000 = CREATE_NO_WINDOW, 0x00000200 = CREATE_NEW_PROCESS_GROUP
                 creationflags = 0x08000000 | 0x00000200
+                
+            os.environ["QMI_PLUGIN_AVOID_DUPLICATES"] = "1" if self.qdl_config.avoid_duplicates else "0"
                 
             self.call_from_thread(self.write_log, "Starting daemon...")
             self.call_from_thread(self.status_widget.status_panel.update_state, daemon="Pending")

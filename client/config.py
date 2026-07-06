@@ -45,6 +45,14 @@ class ClientConfig:
     @qdl_bin_dir.setter
     def qdl_bin_dir(self, value: str) -> None:
         self._config_data["qdl_bin_dir"] = value
+        
+    @property
+    def avoid_duplicates(self) -> bool:
+        return self._config_data.get("avoid_duplicates", True)
+
+    @avoid_duplicates.setter
+    def avoid_duplicates(self, value: bool) -> None:
+        self._config_data["avoid_duplicates"] = value
     # endregion
 
     # region Class Constructor

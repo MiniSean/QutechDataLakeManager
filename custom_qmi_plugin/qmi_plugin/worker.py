@@ -33,8 +33,12 @@ from qmi_plugin.scan_dataset import (
     mirror_uploaded_files,
     scan_dataset,
     valid_qmi_date_directory,
+    find_valid_dataset_folders
 )
 from qmi_plugin.state_manager import StateManager
+import os
+import zmq.asyncio
+import qdl
 
 logger = get_logger()
 SOCKET_RECV_TIMEOUT = 5  # [s]
@@ -61,9 +65,10 @@ class Worker:
             self._callback_initialize,
             self._callback_terminate,
         )
+        self._processed_tuids = set()
+        self._avoid_duplicates = os.environ.get("QMI_PLUGIN_AVOID_DUPLICATES", "1") == "1"
         
         # --- custom tracking ---
-        import zmq.asyncio
         self._tracking_ctx = zmq.asyncio.Context.instance()
         self._tracking_pub = self._tracking_ctx.socket(zmq.PUB)
         self._tracking_pub.connect("tcp://127.0.0.1:4206")
@@ -92,6 +97,14 @@ class Worker:
             log_message = f"QMI-plugin: invalid qmi_ready_date {self._qmi_ready_date}. Must be in form of YYYYMMDD"
             logger.error(log_message, event_key=EventKey.PLUGIN_INITIALIZE_REQUEST)
             raise ValueError(log_message)
+
+        if self._avoid_duplicates:
+            try:
+                datasets = qdl.Dataset.list(self._scope_uid)
+                self._processed_tuids = {d.name for d in datasets}
+                logger.info(f"QMI-plugin: Avoid Duplicates enabled. Loaded {len(self._processed_tuids)} processed TUIDs from QDL SDK.", event_key=EventKey.PLUGIN_INITIALIZE_REQUEST)
+            except Exception as e:
+                logger.error(f"QMI-plugin: Failed to load datasets from QDL SDK: {e}", event_key=EventKey.PLUGIN_INITIALIZE_REQUEST)
 
         logger.info(f"QMI-plugin: Initialized for polling '{self._qmi_datastore}' every {self._scan_interval} seconds")
         self._state_manager.set_state(PluginState.HEALTHY)
@@ -147,6 +160,8 @@ class Worker:
             )
             if response.payload.status == DataFileReadyState.SUCCESS:
                 await mirror_uploaded_files(dataset_path=dataset_path, uploaded_files=files_to_add)
+                if self._avoid_duplicates:
+                    self._processed_tuids.add(dataset_name)
 
         except (CommunicationTimeoutException, RequestFailedException) as exc:
             # Set state to FAILED
@@ -174,19 +189,22 @@ class Worker:
         """Scan qmi datastore and per dataset call sync service when changes are discovered."""
         assert self._state_manager.state() == PluginState.HEALTHY
 
-        for date_path in sorted(self._qmi_datastore.iterdir()):
-            if valid_qmi_date_directory(date_path.name) and date_path.is_dir():
-                for dataset_path in sorted(date_path.iterdir()):
-                    if dataset_path.is_dir():
-                        files_to_add, attributes_to_add = await scan_dataset(dataset_path)
-                        extra_fields = self.get_extra_fields(dataset_path)
-                        if files_to_add:
-                            await self.dataset_file_ready(
-                                dataset_path=dataset_path,
-                                files_to_add=files_to_add,
-                                metadata=attributes_to_add,
-                                extra_fields=extra_fields,
-                            )
+        valid_folders = find_valid_dataset_folders(self._qmi_datastore)
+        for dataset_path in valid_folders:
+            dataset_name = dataset_path.name
+            
+            if self._avoid_duplicates and dataset_name in self._processed_tuids:
+                continue
+
+            files_to_add, attributes_to_add = await scan_dataset(dataset_path)
+            extra_fields = self.get_extra_fields(dataset_path)
+            if files_to_add:
+                await self.dataset_file_ready(
+                    dataset_path=dataset_path,
+                    files_to_add=files_to_add,
+                    metadata=attributes_to_add,
+                    extra_fields=extra_fields,
+                )
 
     async def work(self) -> None:
         """Coroutine that handles the normal work of the healthy plugin."""

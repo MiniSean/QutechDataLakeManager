@@ -14,7 +14,7 @@ load_dotenv()
 
 class PluginSettings(BaseSettings):  # type: ignore
     heartbeat_interval: PositiveInt = 10
-    scan_interval: NonNegativeFloat = 60.0
+    scan_interval: NonNegativeFloat = 5.0
 
 
 class Settings(PluginSettings):

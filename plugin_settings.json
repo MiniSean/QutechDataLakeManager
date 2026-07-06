@@ -1,6 +1,7 @@
 {
-  "sync_interval": 60,
-  "scan_interval": 60,
+  "sync_interval": 5.0,
+  "scan_interval": 5.0,
+  "avoid_duplicates": true,
   "manage_services": true,
   "show_daemon_logs": false,
   "show_sync_logs": false,
