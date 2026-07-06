@@ -312,7 +312,7 @@ class QdlClientApp(App[None]):
         daemon_url = "http://127.0.0.1:5500/transfers/data"
         
         while time.time() - start_time < timeout:
-            time_remaining_before_timeout = timeout - (time.time() - start_time)
+            time_remaining_before_timeout = round(timeout - (time.time() - start_time), 0)
             try:
                 req = urllib.request.Request(daemon_url)
                 with urllib.request.urlopen(req, timeout=1.0) as response:
