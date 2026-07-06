@@ -46,18 +46,18 @@ class HeatmapGrid:
         if count == 0:
             return "color(237)" # Dark grey
         if self.single_color_mode:
-            return "color(51)"  # Bright cyan
+            return "color(201)"  # Bright purple
             
         if count == 1:
-            return "color(23)"  # Dark cyan
+            return "color(53)"  # Dark purple
         elif count == 2:
-            return "color(30)"  # Medium dark cyan
+            return "color(90)"  # Medium dark purple
         elif count == 3:
-            return "color(37)"  # Medium cyan
+            return "color(127)"  # Medium purple
         elif count == 4:
-            return "color(44)"  # Cyan
+            return "color(164)"  # Purple
         else:
-            return "color(45)"  # Bright cyan (dimmed slightly)
+            return "color(165)"  # Bright purple (dimmed slightly)
 
     def render(self, available_counts: Dict[datetime.date, int], detected_counts: Dict[datetime.date, int]) -> Group:
         """Renders the heatmap grid and headers."""
@@ -78,15 +78,18 @@ class HeatmapGrid:
         header_chars2 = [" "] * self.num_weeks
         
         def place_text(chars_list: List[str], idx: int, text: str, force: bool = False) -> None:
+            while len(chars_list) < idx + len(text):
+                chars_list.append(" ")
+                
             available = True
             for j in range(len(text)):
-                if idx + j < self.num_weeks and chars_list[idx + j] != " ":
+                if chars_list[idx + j] != " ":
                     available = False
                     break
+                    
             if available or force:
                 for j, char in enumerate(text):
-                    if idx + j < self.num_weeks:
-                        chars_list[idx + j] = char
+                    chars_list[idx + j] = char
 
         # Place Januaries first (highest priority)
         for i, col_date in enumerate(col_dates):
@@ -154,7 +157,7 @@ class HeatmapGrid:
         if self.single_color_mode:
             legend: Text = Text("Detected Datasets: ", justify="left")
             legend.append("■ ", style="color(237)")
-            legend.append("■ ", style="color(51)")
+            legend.append("■ ", style="color(201)")
             legend.append(" | Synced Datasets: ")
             legend.append("■ ", style="color(237)")
             legend.append("■ ", style="color(46)")
@@ -162,11 +165,11 @@ class HeatmapGrid:
             
         legend: Text = Text("Detected Datasets: Less ", justify="left")
         legend.append("■ ", style="color(237)")
-        legend.append("■ ", style="color(23)")
-        legend.append("■ ", style="color(30)")
-        legend.append("■ ", style="color(37)")
-        legend.append("■ ", style="color(44)")
-        legend.append("■ ", style="color(45)")
+        legend.append("■ ", style="color(53)")
+        legend.append("■ ", style="color(90)")
+        legend.append("■ ", style="color(127)")
+        legend.append("■ ", style="color(164)")
+        legend.append("■ ", style="color(165)")
         legend.append("More | Synced Datasets: Less ")
         legend.append("■ ", style="color(237)")
         legend.append("■ ", style="color(22)")
