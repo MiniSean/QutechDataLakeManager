@@ -7,6 +7,10 @@ import time
 import atexit
 import threading
 import logging
+import urllib.request
+import urllib.error
+import tkinter as tk
+from tkinter import filedialog
 from pathlib import Path
 from typing import Any, Optional, Mapping, MutableMapping, List, Dict, Callable
 
@@ -15,6 +19,7 @@ from typing import Any, Optional, Mapping, MutableMapping, List, Dict, Callable
 
 import click
 import qdl
+import zmq
 
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Static, Input, Button, RichLog, Label, ContentSwitcher, Checkbox
@@ -22,7 +27,7 @@ from textual.containers import Container, Horizontal, Vertical, Grid
 from textual import work
 
 from client.contribution_heatmap.ui import HeatmapGrid
-from client.contribution_heatmap.data_fetcher import get_datasets_per_day, get_tuids_containing, parse_tuids_to_heatmap_data
+from client.contribution_heatmap.data_fetcher import get_datasets_per_day, get_tuids_containing, parse_tuids_to_heatmap_data, extract_and_filter_tuids
 import datetime
 from pathlib import Path
 from client.contribution_heatmap.strategy_tuid_extraction import QdlDatasetNameDateExtraction
@@ -308,8 +313,6 @@ class QdlClientApp(App[None]):
                 ui_log(f"[CLIENT] Error stopping plugin: {e}")
                 
         # Start await idle loop
-        import urllib.request
-        import urllib.error
         
         start_time = time.time()
         timeout = 60.0
@@ -479,8 +482,6 @@ class QdlClientApp(App[None]):
 
     @work(thread=True)
     def browse_directory(self) -> None:
-        import tkinter as tk
-        from tkinter import filedialog
         
         root = tk.Tk()
         root.withdraw()
@@ -603,19 +604,39 @@ class QdlClientApp(App[None]):
             now = time.time()
             for tuid, info in list(self.tuid_states.items()):
                 if tuid in processed_tuids:
+                    short_tuid = tuid[:15]
                     if info["state"] != "Processed":
                         info["state"] = "Processed"
-                        self.call_from_thread(self.write_log, f"[bold green][TRACKER] TUID {tuid} Processed by Daemon![/bold green]")
+                        
+                        date_folder = tuid[:8]
+                        data_dir = Path(self.qdl_config.data_dir) / date_folder
+                        y = 0
+                        x = 0
+                        if data_dir.exists() and data_dir.is_dir():
+                            names = os.listdir(data_dir)
+                            valid_tuid_map = extract_and_filter_tuids(names)
+                            valid_tuid_names = set(valid_tuid_map.values())
+                            y = len(valid_tuid_names)
+                            x = sum(1 for name in valid_tuid_names if name in processed_tuids)
+                            
+                        if y == 0:
+                            ratio_str = "0/0"
+                            perc_str = "100.0%"
+                        else:
+                            ratio_str = f"{x}/{y}"
+                            perc_str = f"{round((x / y) * 100, 1)}%"
+                            
+                        ts_str = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+                        self.call_from_thread(self.write_log, f"[bold green][TRACKER] timestamp={ts_str} TUID: {short_tuid} Processed by Daemon ({ratio_str} {perc_str} of folder processed)[/bold green]")
                 else:
                     if info["state"] == "Submitted" and (now - info["time"] > 120):
-                        self.call_from_thread(self.write_log, f"[bold red][WARNING] TUID {tuid} is pending/stuck and has not been processed yet![/bold red]")
+                        self.call_from_thread(self.write_log, f"[bold red][WARNING] timestamp={ts_str} TUID: {short_tuid} is pending/stuck and has not been processed yet![/bold red]")
                         info["state"] = "Stuck"
         except Exception:
             pass
 
     @work(thread=True)
     def tuid_tracker_thread(self) -> None:
-        import zmq
         ctx = zmq.Context.instance()
         socket = ctx.socket(zmq.SUB)
         socket.bind("tcp://127.0.0.1:4206")
@@ -627,7 +648,9 @@ class QdlClientApp(App[None]):
                     if data.get("type") == "tuid_event":
                         tuid = data.get("tuid")
                         self.tuid_states[tuid] = {"state": "Submitted", "time": time.time()}
-                        self.call_from_thread(self.write_log, f"[bold blue][TRACKER] Plugin Found & Submitted TUID: {tuid}[/bold blue]")
+                        ts_str = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+                        short_tuid = tuid[:15]
+                        self.call_from_thread(self.write_log, f"[bold purple][TRACKER] timestamp={ts_str} TUID: {short_tuid} Submitted by Plugin [/bold purple]")
             except Exception:
                 pass
 
